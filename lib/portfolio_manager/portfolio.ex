@@ -332,14 +332,22 @@ defmodule PortfolioManager.Portfolio do
       end)
       |> Enum.reject(&is_nil/1)
 
-    # Add all new repos to registry
+    # Add all new repos to registry and create contexts
+    {adapter, storage_state} = state.storage
+
     {updated_registry, added_repos} =
       Enum.reduce(new_repos, {state.registry, []}, fn attrs, {reg, acc} ->
         case Repo.new(attrs) do
           {:ok, repo} ->
             case Registry.add_repo(reg, repo) do
-              {:ok, new_reg} -> {new_reg, [repo | acc]}
-              {:error, _} -> {reg, acc}
+              {:ok, new_reg} ->
+                # Create initial context for the repo
+                context = Context.new(repo)
+                _ = adapter.save_context(storage_state, context)
+                {new_reg, [repo | acc]}
+
+              {:error, _} ->
+                {reg, acc}
             end
 
           {:error, _} ->

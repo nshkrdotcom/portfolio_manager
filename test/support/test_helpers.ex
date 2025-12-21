@@ -49,7 +49,7 @@ defmodule PortfolioManager.TestHelpers do
     File.mkdir_p!(path)
 
     # Initialize git repo
-    System.cmd("git", ["init"], cd: path)
+    System.cmd("git", ["init", "-b", "main"], cd: path)
     System.cmd("git", ["config", "user.email", "test@test.com"], cd: path)
     System.cmd("git", ["config", "user.name", "Test User"], cd: path)
 

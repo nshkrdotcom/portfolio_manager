@@ -332,12 +332,17 @@ defmodule PortfolioManager do
     Portfolio.save(portfolio)
   end
 
-  # Semantic Search (placeholder for future implementation)
+  # RAG-Powered Features
 
   @doc """
   Performs semantic search across all repositories.
 
-  Requires embeddings to be configured.
+  Uses vector embeddings to find semantically similar content.
+
+  ## Options
+
+    * `:limit` - Maximum results to return (default: 10)
+    * `:min_score` - Minimum similarity score (default: 0.5)
 
   ## Examples
 
@@ -345,8 +350,185 @@ defmodule PortfolioManager do
 
   """
   @spec semantic_search(portfolio(), String.t(), keyword()) :: [map()]
-  def semantic_search(_portfolio, _query, _opts \\ []) do
-    # TODO: Implement with gemini_ex embeddings
-    []
+  def semantic_search(portfolio, query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+
+    # Get all repos and their contexts
+    repos = list_repos(portfolio)
+
+    # Build searchable content from repos
+    repo_contents =
+      repos
+      |> Enum.map(fn repo ->
+        context =
+          case get_context(portfolio, repo.id) do
+            {:ok, ctx} -> ctx
+            _ -> nil
+          end
+
+        content = build_searchable_content(repo, context)
+        {repo, content}
+      end)
+      |> Enum.filter(fn {_repo, content} -> content != "" end)
+
+    # Generate embeddings for query and repo contents
+    case PortfolioManager.Rag.embed_one(query) do
+      {:ok, query_embedding} ->
+        texts = Enum.map(repo_contents, fn {_repo, content} -> content end)
+
+        case PortfolioManager.Rag.embed(texts) do
+          {:ok, content_embeddings} ->
+            # Calculate similarities and rank
+            repo_contents
+            |> Enum.zip(content_embeddings)
+            |> Enum.map(fn {{repo, content}, embedding} ->
+              score = cosine_similarity(query_embedding, embedding)
+
+              %{
+                repo_id: repo.id,
+                name: repo.name,
+                type: repo.type,
+                language: repo.language,
+                score: score,
+                snippet: String.slice(content, 0, 200)
+              }
+            end)
+            |> Enum.filter(fn result ->
+              result.score >= Keyword.get(opts, :min_score, 0.5)
+            end)
+            |> Enum.sort_by(& &1.score, :desc)
+            |> Enum.take(limit)
+
+          {:error, _} ->
+            []
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  @doc """
+  Performs an agentic query that uses tools to find answers.
+
+  The agent can search repos, get context, compare projects, and more.
+
+  ## Options
+
+    * `:provider` - LLM provider to use (:gemini, :claude, :codex)
+    * `:max_iterations` - Maximum tool iterations
+
+  ## Examples
+
+      {:ok, result} = PortfolioManager.query(portfolio,
+        "Compare my instructor_ex port to the upstream Python version"
+      )
+
+      IO.puts(result.answer)
+      IO.inspect(result.tools_used)
+
+  """
+  @spec query(portfolio(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def query(portfolio, question, opts \\ []) do
+    PortfolioManager.Rag.query(portfolio, question, opts)
+  end
+
+  @doc """
+  Starts a new interactive chat session.
+
+  Sessions maintain conversation history for multi-turn interactions.
+
+  ## Options
+
+    * `:id` - Custom session ID
+    * `:metadata` - Additional session metadata
+
+  ## Examples
+
+      {:ok, session} = PortfolioManager.start_session(portfolio)
+
+  """
+  @spec start_session(portfolio(), keyword()) :: {:ok, Rag.Agent.Session.t()}
+  def start_session(_portfolio, opts \\ []) do
+    session = PortfolioManager.Rag.create_session(opts)
+    {:ok, session}
+  end
+
+  @doc """
+  Sends a message in a chat session.
+
+  The agent uses tools to answer questions while maintaining conversation context.
+
+  ## Examples
+
+      {:ok, session} = PortfolioManager.start_session(portfolio)
+      {:ok, response, session} = PortfolioManager.chat(portfolio, session, "Show me all Elixir libraries")
+      {:ok, response, session} = PortfolioManager.chat(portfolio, session, "Which ones are ports?")
+
+  """
+  @spec chat(portfolio(), Rag.Agent.Session.t(), String.t(), keyword()) ::
+          {:ok, String.t(), Rag.Agent.Session.t()} | {:error, term()}
+  def chat(portfolio, session, message, opts \\ []) do
+    PortfolioManager.Rag.chat(portfolio, session, message, opts)
+  end
+
+  # Private helpers for semantic search
+
+  defp build_searchable_content(repo, context) do
+    parts = [
+      repo.name,
+      repo.id,
+      to_string(repo.type),
+      to_string(repo.language),
+      Enum.join(repo.tags || [], " ")
+    ]
+
+    parts =
+      if context do
+        parts ++
+          [
+            context.notes || "",
+            format_decisions(context.decisions),
+            format_port_info(context.repo.port)
+          ]
+      else
+        parts
+      end
+
+    parts
+    |> Enum.filter(&(&1 != nil and &1 != ""))
+    |> Enum.join(" ")
+  end
+
+  defp format_decisions(nil), do: ""
+
+  defp format_decisions(decisions) do
+    decisions
+    |> Enum.map(fn d -> "#{d.title}: #{d.content}" end)
+    |> Enum.join(" ")
+  end
+
+  defp format_port_info(nil), do: ""
+
+  defp format_port_info(port) do
+    [
+      port[:upstream_url],
+      port[:upstream_language],
+      port[:coverage]
+    ]
+    |> Enum.filter(&(&1 != nil))
+    |> Enum.join(" ")
+  end
+
+  defp cosine_similarity(vec_a, vec_b) when is_list(vec_a) and is_list(vec_b) do
+    dot = Enum.zip(vec_a, vec_b) |> Enum.reduce(0.0, fn {a, b}, acc -> acc + a * b end)
+    mag_a = :math.sqrt(Enum.reduce(vec_a, 0.0, fn x, acc -> acc + x * x end))
+    mag_b = :math.sqrt(Enum.reduce(vec_b, 0.0, fn x, acc -> acc + x * x end))
+
+    if mag_a == 0.0 or mag_b == 0.0 do
+      0.0
+    else
+      dot / (mag_a * mag_b)
+    end
   end
 end

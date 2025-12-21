@@ -49,6 +49,9 @@ defmodule PortfolioManager.MixProject do
       # JSON
       {:jason, "~> 1.4"},
 
+      # RAG (Retrieval-Augmented Generation)
+      {:rag, github: "nshkrdotcom/rag", branch: "feature/multi-llm-routing-agent-framework"},
+
       # File watching (optional)
       {:file_system, "~> 1.0", optional: true},
 
@@ -99,6 +102,15 @@ defmodule PortfolioManager.MixProject do
           PortfolioManager.Adapters.YAMLStorage,
           PortfolioManager.Adapters.LocalGit,
           PortfolioManager.Adapters.FileDetector
+        ],
+        RAG: [
+          PortfolioManager.Rag,
+          PortfolioManager.Rag.Tools.SearchRepos,
+          PortfolioManager.Rag.Tools.GetRepoContext,
+          PortfolioManager.Rag.Tools.ListRepos,
+          PortfolioManager.Rag.Tools.FindRelationships,
+          PortfolioManager.Rag.Tools.CompareRepos,
+          PortfolioManager.Rag.Tools.GetPortfolioStats
         ]
       ]
     ]

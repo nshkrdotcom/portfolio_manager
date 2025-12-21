@@ -1,95 +1,175 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" fill="none">
   <defs>
-    <!-- Gradient for main hexagon -->
-    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0EA5E9;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0284C7;stop-opacity:1" />
+    <path id="hexBase" d="M 100 0 L 186.6 50 L 186.6 150 L 100 200 L 13.4 150 L 13.4 50 Z"/>
+    <path id="innerHex" d="M 100 22 L 167.5 61 L 167.5 139 L 100 178 L 32.5 139 L 32.5 61 Z"/>
+    <path id="coreHex" d="M 100 60 L 134.6 80 L 134.6 120 L 100 140 L 65.4 120 L 65.4 80 Z"/>
+
+    <linearGradient id="hexFill" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#2B1C3A"/>
+      <stop offset="48%" stop-color="#4B2E83"/>
+      <stop offset="100%" stop-color="#1E2A3B"/>
+    </linearGradient>
+    <linearGradient id="hexRim" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E7D8FF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#2A1B3A" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="hexSheen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
 
-    <!-- Gradient for inner elements -->
-    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#06B6D4;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#0891B2;stop-opacity:1" />
+    <radialGradient id="coreGlow" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#EBD8FF" stop-opacity="0.35"/>
+      <stop offset="55%" stop-color="#BFA3E6" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#1E2A3B" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="innerFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2A203B"/>
+      <stop offset="100%" stop-color="#3A2B56"/>
+    </linearGradient>
+    <linearGradient id="innerStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#CDB7F2" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#2B1C3A" stop-opacity="0.9"/>
     </linearGradient>
 
-    <!-- Shadow filter -->
-    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
-      <feOffset dx="0" dy="2" result="offsetblur"/>
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="0.2"/>
-      </feComponentTransfer>
+    <linearGradient id="coreFill" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#B98044"/>
+      <stop offset="50%" stop-color="#F2D6AD"/>
+      <stop offset="100%" stop-color="#A56E38"/>
+    </linearGradient>
+    <linearGradient id="coreStroke" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFEED0"/>
+      <stop offset="100%" stop-color="#6B4422"/>
+    </linearGradient>
+    <linearGradient id="dropletFill" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF4DF"/>
+      <stop offset="55%" stop-color="#E7C18B"/>
+      <stop offset="100%" stop-color="#B6793D"/>
+    </linearGradient>
+
+    <linearGradient id="signalLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D7C2FF" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#D7C2FF" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#D7C2FF" stop-opacity="0"/>
+    </linearGradient>
+
+    <pattern id="microGrid" patternUnits="userSpaceOnUse" width="22" height="19.05">
+      <path d="M 11 0 L 22 9.52 L 11 19.05 L 0 9.52 Z" fill="none" stroke="#8C6AA9" stroke-width="0.6" opacity="0.35"/>
+      <path d="M 11 0 L 11 19.05" stroke="#8C6AA9" stroke-width="0.4" opacity="0.2"/>
+    </pattern>
+
+    <clipPath id="hexClip">
+      <use href="#hexBase"/>
+    </clipPath>
+    <clipPath id="innerClip">
+      <use href="#innerHex"/>
+    </clipPath>
+
+    <filter id="dropShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="blur"/>
+      <feOffset dx="0" dy="6" result="offset"/>
+      <feColorMatrix in="offset" type="matrix"
+        values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.35 0" result="shadow"/>
       <feMerge>
-        <feMergeNode/>
+        <feMergeNode in="shadow"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+
+    <filter id="innerShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feOffset dx="0" dy="2" result="offset"/>
+      <feGaussianBlur in="offset" stdDeviation="3" result="blur"/>
+      <feComposite in="blur" in2="SourceAlpha" operator="out" result="inverse"/>
+      <feColorMatrix in="inverse" type="matrix"
+        values="0 0 0 0 0.05
+                0 0 0 0 0.04
+                0 0 0 0 0.08
+                0 0 0 0.55 0" result="shadow"/>
+      <feComposite in="shadow" in2="SourceGraphic" operator="over"/>
+    </filter>
+
+    <filter id="coreShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.5" result="blur"/>
+      <feOffset dx="0" dy="2" result="offset"/>
+      <feColorMatrix in="offset" type="matrix"
+        values="0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0 0
+                0 0 0 0.35 0" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="nodeGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#F2C97D" flood-opacity="0.7"/>
+    </filter>
   </defs>
 
-  <!-- Background circle for better composition -->
-  <circle cx="100" cy="100" r="95" fill="#F0F9FF" opacity="0.5"/>
+  <g filter="url(#dropShadow)">
+    <use href="#hexBase" fill="url(#hexFill)" stroke="url(#hexRim)" stroke-width="4"/>
+  </g>
+  <use href="#hexBase" fill="none" stroke="url(#hexSheen)" stroke-width="1.6" opacity="0.55"/>
 
-  <!-- Main hexagon (representing hexagonal architecture) -->
-  <path d="M 100 25 L 150 56.7 L 150 119.3 L 100 151 L 50 119.3 L 50 56.7 Z"
-        fill="url(#mainGradient)"
-        stroke="#0369A1"
-        stroke-width="3"
-        filter="url(#shadow)"/>
-
-  <!-- Inner hexagonal structure (layered architecture concept) -->
-  <path d="M 100 45 L 135 63.4 L 135 100.6 L 100 119 L 65 100.6 L 65 63.4 Z"
-        fill="none"
-        stroke="#E0F2FE"
-        stroke-width="2"
-        opacity="0.6"/>
-
-  <!-- Central structure representing portfolio/organization -->
-  <!-- Folder/portfolio icon integrated with hexagonal theme -->
-  <g transform="translate(100, 88)">
-    <!-- Base folder shape -->
-    <path d="M -20 -8 L -20 -12 L -8 -12 L -5 -8 L 20 -8 L 20 12 L -20 12 Z"
-          fill="#E0F2FE"
-          stroke="#BAE6FD"
-          stroke-width="1.5"/>
-
-    <!-- Folder tab detail -->
-    <path d="M -8 -12 L -5 -8 L 20 -8"
-          fill="none"
-          stroke="#BAE6FD"
-          stroke-width="1.5"/>
-
-    <!-- Document/project lines inside folder -->
-    <line x1="-12" y1="-2" x2="12" y2="-2" stroke="#0284C7" stroke-width="2" opacity="0.8"/>
-    <line x1="-12" y1="3" x2="12" y2="3" stroke="#0284C7" stroke-width="2" opacity="0.6"/>
-    <line x1="-12" y1="8" x2="8" y2="8" stroke="#0284C7" stroke-width="2" opacity="0.4"/>
+  <g clip-path="url(#hexClip)">
+    <rect width="200" height="200" fill="url(#coreGlow)"/>
+    <rect width="200" height="200" fill="url(#microGrid)" opacity="0.45"/>
+    <path d="M -12 32 L 108 -18 L 220 82 L 108 212 L -12 172 Z" fill="url(#hexSheen)" opacity="0.6"/>
+    <path d="M 18 88 L 100 132 L 182 88" stroke="url(#signalLine)" stroke-width="2" opacity="0.45"/>
+    <path d="M 24 116 L 100 76 L 176 116" stroke="url(#signalLine)" stroke-width="1.6" opacity="0.4"/>
   </g>
 
-  <!-- AI/Intelligence indicator - neural node pattern -->
-  <g opacity="0.7">
-    <!-- Top nodes -->
-    <circle cx="100" cy="50" r="3" fill="#06B6D4"/>
-    <circle cx="85" cy="60" r="2.5" fill="#06B6D4"/>
-    <circle cx="115" cy="60" r="2.5" fill="#06B6D4"/>
-
-    <!-- Connecting lines (subtle neural network) -->
-    <line x1="100" y1="50" x2="85" y2="60" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
-    <line x1="100" y1="50" x2="115" y2="60" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
-    <line x1="85" y1="60" x2="100" y2="70" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
-    <line x1="115" y1="60" x2="100" y2="70" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
+  <g filter="url(#innerShadow)">
+    <use href="#innerHex" fill="url(#innerFill)" stroke="url(#innerStroke)" stroke-width="2"/>
   </g>
 
-  <!-- Corner accent nodes representing organization/structure -->
-  <g opacity="0.5">
-    <circle cx="60" cy="70" r="2" fill="#0EA5E9"/>
-    <circle cx="140" cy="70" r="2" fill="#0EA5E9"/>
-    <circle cx="60" cy="106" r="2" fill="#0EA5E9"/>
-    <circle cx="140" cy="106" r="2" fill="#0EA5E9"/>
+  <g clip-path="url(#innerClip)">
+    <path d="M 40 120 L 100 152 L 160 120" stroke="#EAD9FF" stroke-width="1.4" opacity="0.35"/>
+    <path d="M 40 96 L 100 128 L 160 96" stroke="#EAD9FF" stroke-width="1.2" opacity="0.25"/>
   </g>
 
-  <!-- Bottom accent - platform/foundation line -->
-  <path d="M 70 130 L 130 130"
-        stroke="#0369A1"
-        stroke-width="3"
-        stroke-linecap="round"
-        opacity="0.6"/>
+  <g filter="url(#coreShadow)">
+    <use href="#coreHex" fill="url(#coreFill)" stroke="url(#coreStroke)" stroke-width="2"/>
+  </g>
+
+  <path d="M 100 78 C 110 92 118 102 118 114 C 118 126 110 134 100 134 C 90 134 82 126 82 114 C 82 102 90 92 100 78 Z"
+        fill="url(#dropletFill)" stroke="#7A4C24" stroke-width="1.4"/>
+  <path d="M 96 90 C 92 98 91 106 94 114" stroke="#FFF6E5" stroke-width="2" opacity="0.65" stroke-linecap="round"/>
+
+  <g stroke="#EED9B2" stroke-width="1.2" opacity="0.7">
+    <line x1="88" y1="128" x2="112" y2="128"/>
+    <line x1="86" y1="134" x2="114" y2="134"/>
+  </g>
+
+  <g stroke="#CDB7F2" stroke-width="1.2" opacity="0.6">
+    <line x1="100" y1="22" x2="100" y2="60"/>
+    <line x1="164" y1="64" x2="134.6" y2="80"/>
+    <line x1="164" y1="136" x2="134.6" y2="120"/>
+    <line x1="100" y1="178" x2="100" y2="140"/>
+    <line x1="36" y1="136" x2="65.4" y2="120"/>
+    <line x1="36" y1="64" x2="65.4" y2="80"/>
+  </g>
+
+  <g filter="url(#nodeGlow)">
+    <circle cx="100" cy="22" r="3.2" fill="#F2C97D"/>
+    <circle cx="164" cy="64" r="3.2" fill="#F2C97D"/>
+    <circle cx="164" cy="136" r="3.2" fill="#F2C97D"/>
+    <circle cx="100" cy="178" r="3.2" fill="#F2C97D"/>
+    <circle cx="36" cy="136" r="3.2" fill="#F2C97D"/>
+    <circle cx="36" cy="64" r="3.2" fill="#F2C97D"/>
+  </g>
+
+  <g opacity="0.6" stroke="#F6E6C5" stroke-width="1">
+    <circle cx="100" cy="22" r="6" fill="none"/>
+    <circle cx="164" cy="64" r="6" fill="none"/>
+    <circle cx="164" cy="136" r="6" fill="none"/>
+    <circle cx="100" cy="178" r="6" fill="none"/>
+    <circle cx="36" cy="136" r="6" fill="none"/>
+    <circle cx="36" cy="64" r="6" fill="none"/>
+  </g>
 </svg>
