@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <!-- Gradient for main hexagon -->
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0EA5E9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0284C7;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Gradient for inner elements -->
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06B6D4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0891B2;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Shadow filter -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle for better composition -->
+  <circle cx="100" cy="100" r="95" fill="#F0F9FF" opacity="0.5"/>
+
+  <!-- Main hexagon (representing hexagonal architecture) -->
+  <path d="M 100 25 L 150 56.7 L 150 119.3 L 100 151 L 50 119.3 L 50 56.7 Z"
+        fill="url(#mainGradient)"
+        stroke="#0369A1"
+        stroke-width="3"
+        filter="url(#shadow)"/>
+
+  <!-- Inner hexagonal structure (layered architecture concept) -->
+  <path d="M 100 45 L 135 63.4 L 135 100.6 L 100 119 L 65 100.6 L 65 63.4 Z"
+        fill="none"
+        stroke="#E0F2FE"
+        stroke-width="2"
+        opacity="0.6"/>
+
+  <!-- Central structure representing portfolio/organization -->
+  <!-- Folder/portfolio icon integrated with hexagonal theme -->
+  <g transform="translate(100, 88)">
+    <!-- Base folder shape -->
+    <path d="M -20 -8 L -20 -12 L -8 -12 L -5 -8 L 20 -8 L 20 12 L -20 12 Z"
+          fill="#E0F2FE"
+          stroke="#BAE6FD"
+          stroke-width="1.5"/>
+
+    <!-- Folder tab detail -->
+    <path d="M -8 -12 L -5 -8 L 20 -8"
+          fill="none"
+          stroke="#BAE6FD"
+          stroke-width="1.5"/>
+
+    <!-- Document/project lines inside folder -->
+    <line x1="-12" y1="-2" x2="12" y2="-2" stroke="#0284C7" stroke-width="2" opacity="0.8"/>
+    <line x1="-12" y1="3" x2="12" y2="3" stroke="#0284C7" stroke-width="2" opacity="0.6"/>
+    <line x1="-12" y1="8" x2="8" y2="8" stroke="#0284C7" stroke-width="2" opacity="0.4"/>
+  </g>
+
+  <!-- AI/Intelligence indicator - neural node pattern -->
+  <g opacity="0.7">
+    <!-- Top nodes -->
+    <circle cx="100" cy="50" r="3" fill="#06B6D4"/>
+    <circle cx="85" cy="60" r="2.5" fill="#06B6D4"/>
+    <circle cx="115" cy="60" r="2.5" fill="#06B6D4"/>
+
+    <!-- Connecting lines (subtle neural network) -->
+    <line x1="100" y1="50" x2="85" y2="60" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
+    <line x1="100" y1="50" x2="115" y2="60" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
+    <line x1="85" y1="60" x2="100" y2="70" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
+    <line x1="115" y1="60" x2="100" y2="70" stroke="#06B6D4" stroke-width="1" opacity="0.4"/>
+  </g>
+
+  <!-- Corner accent nodes representing organization/structure -->
+  <g opacity="0.5">
+    <circle cx="60" cy="70" r="2" fill="#0EA5E9"/>
+    <circle cx="140" cy="70" r="2" fill="#0EA5E9"/>
+    <circle cx="60" cy="106" r="2" fill="#0EA5E9"/>
+    <circle cx="140" cy="106" r="2" fill="#0EA5E9"/>
+  </g>
+
+  <!-- Bottom accent - platform/foundation line -->
+  <path d="M 70 130 L 130 130"
+        stroke="#0369A1"
+        stroke-width="3"
+        stroke-linecap="round"
+        opacity="0.6"/>
+</svg>
