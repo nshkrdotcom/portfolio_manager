@@ -11,7 +11,7 @@
   <a href="https://opensource.org/licenses/MIT"><img alt="License" src="https://img.shields.io/hexpm/l/portfolio_manager.svg"></a>
 </p>
 
-**AI-native personal project intelligence system - manage, track, and search across all your repositories with semantic understanding.**
+**AI-native personal project intelligence system - manage, track, and search across all your repositories with semantic understanding and agentic capabilities.**
 
 ---
 
@@ -23,10 +23,29 @@ Portfolio Manager is a pure Elixir library for tracking and managing context abo
 - **Context**: Structured metadata, notes, and decisions per repo
 - **Relationships**: How repos connect (dependencies, ports, forks)
 - **Detection**: Auto-detect repo type, language, and purpose
-- **Semantic Search**: Vector embeddings for intelligent querying
+- **Semantic Search**: Vector embeddings via `gemini_ex` for intelligent querying
+- **Agentic Queries**: Multi-step reasoning with tool use (search, analyze, compare)
+- **Multi-LLM**: Works with Gemini, Codex, and Claude (any combination)
 - **Workflows**: Automated tasks (port sync, doc generation, health checks)
 
 All data is stored in a private git repository for versioning and backup.
+
+### RAG Integration
+
+Portfolio Manager integrates with an enhanced RAG system providing:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Portfolio Manager                         │
+│  semantic_search/3 | query/3 (agentic) | chat/3             │
+└─────────────────────────────────────────────────────────────┘
+                            │
+┌───────────────────────────┴───────────────────────────────┐
+│                     RAG Layer                              │
+│  Embeddings: gemini_ex    LLMs: gemini/codex/claude       │
+│  Search: Torus + pgvector  Agent: Tools + Memory          │
+└────────────────────────────────────────────────────────────┘
+```
 
 ## Installation
 
@@ -274,6 +293,36 @@ Enum.each(results, fn %{repo_id: id, score: score, snippet: snippet} ->
 end)
 ```
 
+### Agentic Queries
+
+```elixir
+# Ask complex questions - the agent uses tools to find answers
+{:ok, result} = PortfolioManager.query(portfolio,
+  "Compare my instructor_ex port to the upstream Python version"
+)
+# Agent: searches repos → gets context → compares → synthesizes answer
+
+IO.puts(result.answer)
+# "Key differences between instructor_ex and upstream:
+#  1. Uses Ecto for validation instead of Pydantic
+#  2. Streaming implementation differs..."
+
+IO.inspect(result.tools_used)
+# [:search_repos, :get_repo_context, :find_relationships, :compare_repos]
+```
+
+### Interactive Sessions
+
+```elixir
+# Multi-turn conversation with memory
+{:ok, session} = PortfolioManager.start_session(portfolio)
+
+{:ok, _} = PortfolioManager.chat(session, "Show me all my Elixir libraries")
+{:ok, _} = PortfolioManager.chat(session, "Which ones are ports?")
+{:ok, _} = PortfolioManager.chat(session, "Tell me more about the second one")
+# Session remembers context from previous messages
+```
+
 ## Development
 
 ```bash
@@ -309,9 +358,18 @@ assert_genserver_state(server, fn state -> state.count == 1 end)
 
 ## Related Projects
 
+**Core Infrastructure**:
 - [portfolio](https://github.com/nshkrdotcom/portfolio) - Private portfolio data repository (example)
-- [gemini_ex](https://github.com/nshkrdotcom/gemini_ex) - Elixir client for Google Gemini API
+- [rag](https://github.com/nshkrdotcom/rag) - Enhanced RAG library (fork of Bitcrowd)
 - [supertester](https://github.com/nshkrdotcom/supertester) - OTP testing toolkit
+
+**LLM Providers** (any combination works):
+- [gemini_ex](https://github.com/nshkrdotcom/gemini_ex) - Elixir client for Google Gemini API (embeddings + LLM)
+- [codex_sdk](https://github.com/nshkrdotcom/codex_sdk) - OpenAI Codex SDK for Elixir
+- [claude_agent_sdk](https://github.com/nshkrdotcom/claude_agent_sdk) - Claude Agent SDK for Elixir
+
+**Search**:
+- [Torus](https://github.com/dimamik/torus) - PostgreSQL search integration for Ecto
 
 ## License
 
