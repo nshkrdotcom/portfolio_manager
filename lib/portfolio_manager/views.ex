@@ -6,6 +6,9 @@ defmodule PortfolioManager.Views do
   Views are stored in the `views/` directory of the portfolio.
   """
 
+  # Suppress dialyzer warning for defensive error handling
+  @dialyzer {:nowarn_function, generate_stale_repos: 3}
+
   alias PortfolioManager.Adapters.LocalGit
 
   @doc """

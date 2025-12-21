@@ -27,6 +27,11 @@ defmodule PortfolioManager.MixProject do
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.html": :test
+      ],
+
+      # Dialyzer
+      dialyzer: [
+        plt_add_apps: [:mix]
       ]
     ]
   end
@@ -55,13 +60,19 @@ defmodule PortfolioManager.MixProject do
       # File watching (optional)
       {:file_system, "~> 1.0", optional: true},
 
+      # SQLite caching (optional)
+      {:exqlite, "~> 0.23", optional: true},
+
       # Testing
       {:supertester, "~> 0.3", only: :test},
       {:excoveralls, "~> 0.18", only: :test},
       {:mox, "~> 1.1", only: :test},
 
       # Docs
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+
+      # Static analysis
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -85,7 +96,9 @@ defmodule PortfolioManager.MixProject do
       groups_for_modules: [
         Core: [
           PortfolioManager,
-          PortfolioManager.Portfolio
+          PortfolioManager.Portfolio,
+          PortfolioManager.Graph,
+          PortfolioManager.Views
         ],
         Domain: [
           PortfolioManager.Domain.Repo,
@@ -102,6 +115,18 @@ defmodule PortfolioManager.MixProject do
           PortfolioManager.Adapters.YAMLStorage,
           PortfolioManager.Adapters.LocalGit,
           PortfolioManager.Adapters.FileDetector
+        ],
+        Detection: [
+          PortfolioManager.Detection.Agentic
+        ],
+        Workflow: [
+          PortfolioManager.Workflow.Engine,
+          PortfolioManager.Workflow.Parser,
+          PortfolioManager.Workflow.Context,
+          PortfolioManager.Workflow.Step
+        ],
+        Cache: [
+          PortfolioManager.Cache.SQLite
         ],
         RAG: [
           PortfolioManager.Rag,

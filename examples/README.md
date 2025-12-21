@@ -55,6 +55,7 @@ mix run examples/01_basic_init.exs
 | Example | Description |
 |---------|-------------|
 | `06_relationships.exs` | Create and query repo relationships |
+| `14_relationship_graph.exs` | Graph visualization, path finding, cycle detection |
 
 ### Search
 
@@ -69,6 +70,25 @@ mix run examples/01_basic_init.exs
 |---------|-------------|
 | `09_agentic_query.exs` | Ask questions using AI agent with tools |
 | `10_chat_session.exs` | Multi-turn conversation with memory |
+| `16_agentic_detection.exs` | LLM-powered purpose/type/status detection |
+
+### Editing & Management
+
+| Example | Description |
+|---------|-------------|
+| `12_edit_and_remove.exs` | Edit repo metadata and remove repos |
+
+### Workflow Engine
+
+| Example | Description |
+|---------|-------------|
+| `13_workflow_engine.exs` | List, parse, and run YAML-defined workflows |
+
+### Performance & Caching
+
+| Example | Description |
+|---------|-------------|
+| `15_sqlite_cache.exs` | SQLite-based caching for fast queries |
 
 ### Advanced
 

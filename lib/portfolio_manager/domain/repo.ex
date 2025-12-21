@@ -21,7 +21,7 @@ defmodule PortfolioManager.Domain.Repo do
 
   @type t :: %__MODULE__{
           id: String.t(),
-          name: String.t(),
+          name: String.t() | nil,
           path: String.t() | nil,
           remote_url: String.t() | nil,
           type: repo_type(),

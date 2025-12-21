@@ -13,7 +13,7 @@ defmodule PortfolioManager.Detection.GitStatisticsTest do
     File.mkdir_p!(tmp_dir)
 
     # Initialize a git repo
-    System.cmd("git", ["init"], cd: tmp_dir)
+    System.cmd("git", ["init", "-b", "main"], cd: tmp_dir)
     System.cmd("git", ["config", "user.email", "test@example.com"], cd: tmp_dir)
     System.cmd("git", ["config", "user.name", "Test User"], cd: tmp_dir)
 

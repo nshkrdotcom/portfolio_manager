@@ -83,6 +83,14 @@ mix portfolio.list --status=active --type=library
 # Show repo details
 mix portfolio.show my-project
 
+# Add/remove repositories
+mix portfolio.add ~/projects/new-repo
+mix portfolio.remove old-repo
+
+# Edit repository metadata
+mix portfolio.edit my-project --type=library --status=active
+mix portfolio.edit my-project --add-tag=elixir --add-tag=ai
+
 # Search across repos
 mix portfolio.search authentication
 
@@ -91,6 +99,26 @@ mix portfolio.ask "which repos use phoenix?"
 
 # Show portfolio status
 mix portfolio.status
+
+# Sync portfolio state
+mix portfolio.sync
+mix portfolio.sync --all --views
+
+# Run workflows
+mix portfolio.run --list
+mix portfolio.run health-check --repo=my-project
+mix portfolio.run port-sync --dry-run
+
+# Configuration management
+mix portfolio.config show
+mix portfolio.config set sync.auto_commit true
+mix portfolio.config add-dir ~/work
+
+# Shell completion (bash/zsh/fish)
+mix portfolio.completion --shell=bash >> ~/.bashrc
+
+# Interactive REPL mode
+mix portfolio.repl
 ```
 
 ### Using the Elixir API
@@ -352,6 +380,83 @@ IO.inspect(result.tools_used)
 {:ok, _} = PortfolioManager.chat(session, "Which ones are ports?")
 {:ok, _} = PortfolioManager.chat(session, "Tell me more about the second one")
 # Session remembers context from previous messages
+```
+
+### Workflows
+
+Define automated multi-step tasks in YAML:
+
+```yaml
+# ~/.portfolio/workflows/my-workflow.yml
+name: my-workflow
+description: Custom workflow example
+steps:
+  - name: check-status
+    type: git
+    action: status
+
+  - name: run-tests
+    type: shell
+    command: mix test
+    continue_on_error: true
+
+  - name: analyze
+    type: agent
+    prompt: "Analyze the test results and suggest improvements"
+```
+
+Run workflows:
+
+```bash
+mix portfolio.run my-workflow --repo=my-project
+mix portfolio.run --list  # Show available workflows
+```
+
+### Relationship Graph
+
+Visualize repository dependencies:
+
+```elixir
+# Build graph from portfolio
+graph = PortfolioManager.Graph.build(portfolio)
+
+# ASCII visualization
+IO.puts(PortfolioManager.Graph.to_ascii(graph))
+
+# Export to Graphviz DOT format
+File.write!("portfolio.dot", PortfolioManager.Graph.to_dot(graph))
+
+# Find path between repos
+path = PortfolioManager.Graph.find_path(graph, "app", "core-lib")
+
+# Detect cycles
+cycles = PortfolioManager.Graph.find_cycles(graph)
+
+# Topological sort (for build order)
+{:ok, order} = PortfolioManager.Graph.topo_sort(graph)
+```
+
+### SQLite Cache (Optional)
+
+For large portfolios, enable SQLite caching for faster queries:
+
+```elixir
+# Add exqlite to your deps (it's optional)
+{:exqlite, "~> 0.23"}
+
+# Start the cache
+{:ok, cache} = PortfolioManager.Cache.SQLite.start_link(
+  portfolio_path: "~/.portfolio"
+)
+
+# Sync repos to cache
+PortfolioManager.Cache.SQLite.sync(cache, repos)
+
+# Fast indexed queries
+{:ok, results} = PortfolioManager.Cache.SQLite.filter(cache,
+  language: "elixir",
+  status: :active
+)
 ```
 
 ## Development

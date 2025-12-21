@@ -52,8 +52,8 @@ defmodule PortfolioManager.ViewsTest do
       File.mkdir_p!(repo2_dir)
 
       # Make them git repos
-      System.cmd("git", ["init"], cd: repo1_dir)
-      System.cmd("git", ["init"], cd: repo2_dir)
+      System.cmd("git", ["init", "-b", "main"], cd: repo1_dir)
+      System.cmd("git", ["init", "-b", "main"], cd: repo2_dir)
       System.cmd("git", ["config", "user.email", "test@test.com"], cd: repo1_dir)
       System.cmd("git", ["config", "user.name", "Test"], cd: repo1_dir)
       System.cmd("git", ["config", "user.email", "test@test.com"], cd: repo2_dir)

@@ -9,15 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **CLI Tool**: Mix tasks for portfolio management
+- **CLI Tool**: Complete set of 14 mix tasks for portfolio management
   - `mix portfolio.init` - Initialize a new portfolio
   - `mix portfolio.scan` - Discover repositories in directories
   - `mix portfolio.list` - List tracked repositories with filtering
   - `mix portfolio.show` - Show detailed repository information
   - `mix portfolio.add` - Manually add a repository
+  - `mix portfolio.remove` - Remove a repository from tracking
+  - `mix portfolio.edit` - Edit repository metadata (type, status, tags, notes)
   - `mix portfolio.search` - Search across repositories
   - `mix portfolio.status` - Show portfolio status
+  - `mix portfolio.sync` - Sync portfolio state and refresh repo info
+  - `mix portfolio.config` - Manage portfolio configuration
+  - `mix portfolio.run` - Execute workflows
   - `mix portfolio.ask` - AI-powered natural language queries
+  - `mix portfolio.completion` - Generate shell completion scripts (bash/zsh/fish)
+  - `mix portfolio.repl` - Interactive REPL mode
+
+- **Workflow Engine**: YAML-defined multi-step automation
+  - Git operations (status, fetch, pull, push, commit)
+  - Shell command execution
+  - LLM/Agent queries
+  - File operations (read, write, copy, delete)
+  - Context variable interpolation
+  - Built-in workflows: port-check, port-sync, health-check, doc-generate, initial-setup
+
+- **Relationship Graph**: Graph operations for repo dependencies
+  - Build graph from portfolio relationships
+  - ASCII and DOT (Graphviz) visualization
+  - Path finding between repos (BFS)
+  - Cycle detection
+  - Topological sorting
+  - Reachability analysis
+  - Centrality metrics
+
+- **Agentic Detection**: LLM-powered repository analysis
+  - Purpose detection from code analysis
+  - Type inference (library, application, port, etc.)
+  - Relationship discovery
+  - Status assessment
+  - Full analysis combining all detection methods
+
+- **SQLite Cache** (optional): Fast indexed queries for large portfolios
+  - Requires optional `exqlite` dependency
+  - Full-text search
+  - Indexed filtering by language, type, status
+  - Relationship caching
+
+- **Shell Completion**: Tab completion for CLI commands
+  - Bash completion script
+  - Zsh completion script
+  - Fish completion script
+
+- **Interactive Mode**: REPL for portfolio exploration
+  - Command history
+  - Built-in help system
+  - All portfolio operations available interactively
 
 - **Enhanced Detection**: Improved repository detection
   - Dependency parsing for Elixir, Python, JavaScript, Rust, and Go

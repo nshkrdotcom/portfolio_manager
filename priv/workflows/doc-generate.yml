@@ -1,0 +1,39 @@
+name: doc-generate
+description: Generate documentation for a repository
+version: "1.0"
+
+steps:
+  - name: detect_language
+    description: Detect project language
+    context:
+      from:
+        lang: "repo.language"
+
+  - name: run_elixir_docs
+    description: Generate Elixir docs
+    shell:
+      command: mix docs
+      cwd: "{{repo.path}}"
+    when: "lang == elixir"
+    continue_on_error: true
+
+  - name: run_python_docs
+    description: Generate Python docs
+    shell:
+      command: pdoc --html . --output-dir docs 2>/dev/null || echo "pdoc not available"
+      cwd: "{{repo.path}}"
+    when: "lang == python"
+    continue_on_error: true
+
+  - name: run_js_docs
+    description: Generate JavaScript docs
+    shell:
+      command: npm run docs 2>/dev/null || npx typedoc 2>/dev/null || echo "No doc generator"
+      cwd: "{{repo.path}}"
+    when: "lang == javascript"
+    continue_on_error: true
+
+  - name: record_docs
+    description: Record documentation generation
+    update:
+      note: "Documentation generated for {{repo.name}}"

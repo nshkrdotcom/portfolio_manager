@@ -47,12 +47,17 @@ BASIC_EXAMPLES=(
     "05_notes_and_decisions.exs"
     "06_relationships.exs"
     "07_text_search.exs"
+    "12_edit_and_remove.exs"
+    "13_workflow_engine.exs"
+    "14_relationship_graph.exs"
+    "15_sqlite_cache.exs"
 )
 
 AI_EXAMPLES=(
     "08_semantic_search.exs"
     "09_agentic_query.exs"
     "10_chat_session.exs"
+    "16_agentic_detection.exs"
 )
 
 FULL_EXAMPLE=(
@@ -88,8 +93,8 @@ else
                 echo "Usage: $0 [OPTIONS] [EXAMPLE_NUMBERS...]"
                 echo ""
                 echo "Options:"
-                echo "  --basic    Run basic examples (01-07) [default]"
-                echo "  --ai       Run AI examples (08-10) - requires GOOGLE_API_KEY"
+                echo "  --basic    Run basic examples (01-07, 12-15) [default]"
+                echo "  --ai       Run AI examples (08-10, 16) - requires GOOGLE_API_KEY"
                 echo "  --full     Run full workflow example (11)"
                 echo "  --all      Run all examples"
                 echo "  --help     Show this help"

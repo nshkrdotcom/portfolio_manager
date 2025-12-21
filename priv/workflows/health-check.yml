@@ -1,0 +1,38 @@
+name: health-check
+description: Run health checks on a repository
+version: "1.0"
+
+steps:
+  - name: check_git_status
+    description: Check for uncommitted changes
+    git:
+      command: status
+
+  - name: check_readme
+    description: Verify README exists
+    file:
+      action: exists
+      path: "{{repo.path}}/README.md"
+
+  - name: check_license
+    description: Check for license file
+    file:
+      action: exists
+      path: "{{repo.path}}/LICENSE"
+
+  - name: check_recent_commits
+    description: Check for recent activity
+    shell:
+      command: git log -1 --format=%ci 2>/dev/null || echo "No commits"
+      capture: last_commit
+
+  - name: count_commits_30d
+    description: Count commits in last 30 days
+    shell:
+      command: git rev-list --count --since="30 days ago" HEAD 2>/dev/null || echo 0
+      capture: commits_30d
+
+  - name: update_health_status
+    description: Record health check results
+    update:
+      note: "Health check completed. Last commit: {{last_commit}}. Commits (30d): {{commits_30d}}"

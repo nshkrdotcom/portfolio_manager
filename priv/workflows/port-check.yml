@@ -1,0 +1,35 @@
+name: port-check
+description: Check port status against upstream repository
+version: "1.0"
+
+vars:
+  stale_days: 30
+
+steps:
+  - name: check_repo_type
+    description: Verify this is a port repository
+    context:
+      set:
+        is_port: "{{repo.type}}"
+
+  - name: get_git_status
+    description: Check for local changes
+    git:
+      command: status
+
+  - name: fetch_upstream
+    description: Fetch latest from origin
+    git:
+      command: fetch
+
+  - name: check_behind
+    description: Check if behind upstream
+    shell:
+      command: git rev-list --count HEAD..origin/main 2>/dev/null || echo 0
+      capture: commits_behind
+
+  - name: report_status
+    description: Update repo status based on findings
+    update:
+      note: "Port check completed. Commits behind: {{commits_behind}}"
+    when: "commits_behind != 0"

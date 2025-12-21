@@ -1,0 +1,52 @@
+name: initial-setup
+description: Initial setup for a newly tracked repository
+version: "1.0"
+
+steps:
+  - name: check_readme
+    description: Check for README
+    file:
+      action: exists
+      path: "{{repo.path}}/README.md"
+
+  - name: check_gitignore
+    description: Check for .gitignore
+    file:
+      action: exists
+      path: "{{repo.path}}/.gitignore"
+
+  - name: detect_type
+    description: Analyze repository type
+    context:
+      from:
+        detected_type: "repo.type"
+        detected_lang: "repo.language"
+
+  - name: get_remote
+    description: Get remote URL
+    git:
+      command: remote
+      args: ["get-url", "origin"]
+    continue_on_error: true
+
+  - name: count_commits
+    description: Count total commits
+    shell:
+      command: git rev-list --count HEAD 2>/dev/null || echo 0
+      capture: total_commits
+
+  - name: get_first_commit
+    description: Get first commit date
+    shell:
+      command: git log --reverse --format=%ci 2>/dev/null | head -1 || echo "unknown"
+      capture: first_commit
+
+  - name: update_context
+    description: Update repository context
+    update:
+      note: |
+        Initial setup completed.
+        Type: {{detected_type}}
+        Language: {{detected_lang}}
+        Total commits: {{total_commits}}
+        First commit: {{first_commit}}

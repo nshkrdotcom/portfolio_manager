@@ -155,7 +155,6 @@ defmodule Mix.Tasks.Portfolio.Show do
   end
 
   defp priority_str(nil), do: ""
-  defp priority_str(:unknown), do: ""
   defp priority_str(priority), do: ", #{priority} priority"
 
   defp remote_str(nil), do: ""
@@ -172,7 +171,6 @@ defmodule Mix.Tasks.Portfolio.Show do
   end
 
   defp tags_str([]), do: ""
-  defp tags_str(nil), do: ""
   defp tags_str(tags), do: "Tags:        #{Enum.join(tags, ", ")}"
 
   defp todos_summary([]), do: ""

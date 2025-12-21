@@ -73,36 +73,38 @@ IO.puts(String.duplicate("═", 60))
 IO.puts("CONVERSATION")
 IO.puts(String.duplicate("═", 60))
 
-final_session =
+_final_session =
   Enum.reduce(conversation, session, fn message, current_session ->
     IO.puts("\n👤 User: #{message}")
 
-    try do
-      case PortfolioManager.chat(portfolio, current_session, message) do
-        {:ok, response, updated_session} ->
-          # Format response (truncate if too long)
-          formatted_response =
-            if String.length(response) > 500 do
-              String.slice(response, 0, 500) <> "..."
-            else
-              response
-            end
+    next_session =
+      try do
+        case PortfolioManager.chat(portfolio, current_session, message) do
+          {:ok, response, updated_session} ->
+            # Format response (truncate if too long)
+            formatted_response =
+              if String.length(response) > 500 do
+                String.slice(response, 0, 500) <> "..."
+              else
+                response
+              end
 
-          IO.puts("\n🤖 Assistant: #{formatted_response}")
-          updated_session
+            IO.puts("\n🤖 Assistant: #{formatted_response}")
+            updated_session
 
-        {:error, reason} ->
-          IO.puts("\n❌ Error: #{inspect(reason)}")
+          {:error, reason} ->
+            IO.puts("\n❌ Error: #{inspect(reason)}")
+            current_session
+        end
+      rescue
+        e ->
+          IO.puts("\n❌ Exception: #{Exception.message(e)}")
           current_session
       end
-    rescue
-      e ->
-        IO.puts("\n❌ Exception: #{Exception.message(e)}")
-        current_session
-    end
 
     # Delay between messages
     Process.sleep(1500)
+    next_session
   end)
 
 IO.puts("\n" <> String.duplicate("═", 60))
