@@ -64,6 +64,16 @@ defmodule PortfolioManager.Portfolio do
   end
 
   @doc """
+  Gets the storage state (path) for generating views.
+  """
+  @spec get_storage_state(GenServer.server()) :: map()
+  def get_storage_state(server) do
+    state = GenServer.call(server, :get_state)
+    {_adapter, storage_state} = state.storage
+    storage_state
+  end
+
+  @doc """
   Adds a repo to the portfolio.
   """
   @spec add_repo(GenServer.server(), String.t()) :: {:ok, Repo.t()} | {:error, term()}

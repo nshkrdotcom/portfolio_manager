@@ -67,6 +67,34 @@ mix deps.get
 
 ## Quick Start
 
+### Using the CLI
+
+```bash
+# Initialize a portfolio
+mix portfolio.init ~/my-portfolio
+
+# Scan directories for repositories
+mix portfolio.scan ~/projects ~/work
+
+# List tracked repos
+mix portfolio.list
+mix portfolio.list --status=active --type=library
+
+# Show repo details
+mix portfolio.show my-project
+
+# Search across repos
+mix portfolio.search authentication
+
+# AI-powered queries (requires GOOGLE_API_KEY)
+mix portfolio.ask "which repos use phoenix?"
+
+# Show portfolio status
+mix portfolio.status
+```
+
+### Using the Elixir API
+
 ```elixir
 # Initialize with a portfolio repo path
 {:ok, portfolio} = PortfolioManager.init("~/portfolio")
@@ -85,6 +113,9 @@ results = PortfolioManager.search(portfolio, "authentication")
 
 # Semantic search (requires embeddings)
 results = PortfolioManager.semantic_search(portfolio, "error handling patterns")
+
+# Generate computed views
+:ok = PortfolioManager.generate_views(portfolio)
 ```
 
 ## Configuration

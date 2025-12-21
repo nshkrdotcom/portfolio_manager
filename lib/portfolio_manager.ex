@@ -332,6 +332,30 @@ defmodule PortfolioManager do
     Portfolio.save(portfolio)
   end
 
+  @doc """
+  Generates computed views for the portfolio.
+
+  Creates aggregated view files in the `views/` directory:
+    * `by-status.yml` - Repos grouped by status
+    * `by-type.yml` - Repos grouped by type
+    * `by-language.yml` - Repos grouped by language
+    * `stale-repos.yml` - Repos with no recent activity
+    * `port-status.yml` - Port repositories status
+
+  ## Options
+
+    * `:stale_days` - Days threshold for stale detection (default: 90)
+
+  ## Examples
+
+      :ok = PortfolioManager.generate_views(portfolio)
+
+  """
+  @spec generate_views(portfolio(), keyword()) :: :ok | {:error, term()}
+  def generate_views(portfolio, opts \\ []) do
+    PortfolioManager.Views.generate_all(portfolio, opts)
+  end
+
   # RAG-Powered Features
 
   @doc """

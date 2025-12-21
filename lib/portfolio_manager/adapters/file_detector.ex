@@ -185,6 +185,7 @@ defmodule PortfolioManager.Adapters.FileDetector do
         :python -> detect_python_deps(expanded)
         :javascript -> detect_js_deps(expanded)
         :rust -> detect_rust_deps(expanded)
+        :go -> detect_go_deps(expanded)
         _ -> []
       end
 
@@ -222,6 +223,10 @@ defmodule PortfolioManager.Adapters.FileDetector do
             String.contains?(content, ":phoenix") -> "phoenix"
             String.contains?(content, ":nerves") -> "nerves"
             String.contains?(content, ":absinthe") -> "absinthe"
+            String.contains?(content, ":scenic") -> "scenic"
+            String.contains?(content, ":livebook") -> "livebook"
+            String.contains?(content, ":ash") -> "ash"
+            String.contains?(content, ":commanded") -> "commanded"
             true -> nil
           end
 
@@ -235,11 +240,15 @@ defmodule PortfolioManager.Adapters.FileDetector do
 
   defp detect_framework(path, :python) do
     files = list_files(path)
+    deps = detect_python_deps(path)
 
     cond do
       "manage.py" in files -> "django"
-      "flask" in read_requirements(path) -> "flask"
-      "fastapi" in read_requirements(path) -> "fastapi"
+      "django" in deps -> "django"
+      "fastapi" in deps -> "fastapi"
+      "flask" in deps -> "flask"
+      "streamlit" in deps -> "streamlit"
+      "gradio" in deps -> "gradio"
       true -> nil
     end
   end
@@ -250,11 +259,21 @@ defmodule PortfolioManager.Adapters.FileDetector do
     if File.exists?(pkg_path) do
       case File.read(pkg_path) do
         {:ok, content} ->
+          # Priority order: meta-frameworks before base frameworks
           cond do
+            # Meta-frameworks (take priority)
+            String.contains?(content, "\"next\"") -> "next"
+            String.contains?(content, "\"@remix-run/") -> "remix"
+            String.contains?(content, "\"nuxt\"") -> "nuxt"
+            String.contains?(content, "\"@angular/core\"") -> "angular"
+            # Base frameworks
             String.contains?(content, "\"react\"") -> "react"
             String.contains?(content, "\"vue\"") -> "vue"
-            String.contains?(content, "\"next\"") -> "next"
+            String.contains?(content, "\"svelte\"") -> "svelte"
+            # Backend frameworks
             String.contains?(content, "\"express\"") -> "express"
+            String.contains?(content, "\"fastify\"") -> "fastify"
+            String.contains?(content, "\"koa\"") -> "koa"
             true -> nil
           end
 
@@ -288,7 +307,34 @@ defmodule PortfolioManager.Adapters.FileDetector do
   end
 
   defp detect_python_deps(path) do
-    read_requirements(path)
+    # Try pyproject.toml first, then requirements.txt
+    pyproject_deps = detect_pyproject_deps(path)
+
+    if pyproject_deps != [] do
+      pyproject_deps
+    else
+      read_requirements(path)
+    end
+  end
+
+  defp detect_pyproject_deps(path) do
+    pyproject_path = Path.join(path, "pyproject.toml")
+
+    if File.exists?(pyproject_path) do
+      case File.read(pyproject_path) do
+        {:ok, content} ->
+          # Parse dependencies from [project.dependencies] section
+          ~r/"([a-zA-Z][\w\-]*)[\[>=<\s]/
+          |> Regex.scan(content)
+          |> Enum.map(fn [_, dep] -> dep end)
+          |> Enum.uniq()
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
   end
 
   defp detect_js_deps(path) do
@@ -325,6 +371,28 @@ defmodule PortfolioManager.Adapters.FileDetector do
           |> Regex.scan(content)
           |> Enum.map(fn [_, dep] -> dep end)
           |> Enum.reject(&(&1 in ["name", "version", "edition", "authors"]))
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
+  end
+
+  defp detect_go_deps(path) do
+    go_mod_path = Path.join(path, "go.mod")
+
+    if File.exists?(go_mod_path) do
+      case File.read(go_mod_path) do
+        {:ok, content} ->
+          # Parse require blocks: require github.com/user/pkg v1.0.0
+          # Also handles multi-line require ( ... ) blocks
+          ~r/(?:require\s+|\t)([\w\.\-\/]+)\s+v/
+          |> Regex.scan(content)
+          |> Enum.map(fn [_, dep] -> dep end)
+          |> Enum.reject(&String.contains?(&1, "// indirect"))
+          |> Enum.uniq()
 
         _ ->
           []

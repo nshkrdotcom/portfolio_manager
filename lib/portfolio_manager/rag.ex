@@ -233,23 +233,17 @@ defmodule PortfolioManager.Rag do
   end
 
   defp instantiate_provider(:gemini), do: Rag.Ai.Gemini.new(%{})
-
-  defp instantiate_provider(:claude) do
-    if Code.ensure_loaded?(Rag.Ai.Claude) do
-      Rag.Ai.Claude.new(%{})
-    else
-      Rag.Ai.Gemini.new(%{})
-    end
-  end
-
-  defp instantiate_provider(:codex) do
-    if Code.ensure_loaded?(Rag.Ai.Codex) do
-      Rag.Ai.Codex.new(%{})
-    else
-      Rag.Ai.Gemini.new(%{})
-    end
-  end
-
+  defp instantiate_provider(:claude), do: maybe_instantiate(Rag.Ai.Claude)
+  defp instantiate_provider(:codex), do: maybe_instantiate(Rag.Ai.Codex)
   defp instantiate_provider(provider) when is_struct(provider), do: provider
   defp instantiate_provider(_), do: Rag.Ai.Gemini.new(%{})
+
+  # Use apply/3 to avoid compile-time warnings for optional modules
+  defp maybe_instantiate(module) do
+    if Code.ensure_loaded?(module) do
+      apply(module, :new, [%{}])
+    else
+      Rag.Ai.Gemini.new(%{})
+    end
+  end
 end

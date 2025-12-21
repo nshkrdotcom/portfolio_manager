@@ -81,6 +81,7 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
     repo_path = Path.join([path, "repos", repo_id])
     context_path = Path.join(repo_path, "context.yml")
     notes_path = Path.join(repo_path, "notes.md")
+    decisions_path = Path.join(repo_path, "decisions")
 
     with {:ok, context_data} <- read_yaml(context_path) do
       notes =
@@ -89,9 +90,74 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
           {:error, _} -> nil
         end
 
+      decisions = load_decisions_from_markdown(decisions_path)
+
       context_data
       |> Map.put("notes", notes)
+      |> Map.put("decisions", decisions)
       |> Context.from_map()
+    end
+  end
+
+  # Load all decisions from markdown files in the decisions directory
+  defp load_decisions_from_markdown(decisions_dir) do
+    if File.dir?(decisions_dir) do
+      decisions_dir
+      |> File.ls!()
+      |> Enum.filter(&String.ends_with?(&1, ".md"))
+      |> Enum.sort()
+      |> Enum.map(fn filename ->
+        filepath = Path.join(decisions_dir, filename)
+        parse_decision_markdown(filepath, filename)
+      end)
+      |> Enum.reject(&is_nil/1)
+    else
+      []
+    end
+  end
+
+  defp parse_decision_markdown(filepath, filename) do
+    case File.read(filepath) do
+      {:ok, content} ->
+        # Extract ID from filename (e.g., "001-use-genserver.md" -> "001")
+        id = filename |> String.split("-") |> List.first()
+
+        # Parse title from first line "# ADR-001: Title Here"
+        title =
+          case Regex.run(~r/^#\s+ADR-\d+:\s*(.+)$/m, content) do
+            [_, title] -> String.trim(title)
+            _ -> filename |> String.replace_suffix(".md", "") |> String.replace(~r/^\d+-/, "")
+          end
+
+        # Parse date from "**Date**: YYYY-MM-DD"
+        date =
+          case Regex.run(~r/\*\*Date\*\*:\s*(\d{4}-\d{2}-\d{2})/, content) do
+            [_, date_str] ->
+              case Date.from_iso8601(date_str) do
+                {:ok, d} -> d
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+
+        # Extract decision content (everything after "## Decision")
+        decision_content =
+          case Regex.run(~r/##\s*Decision\s*\n+(.+)/s, content) do
+            [_, c] -> String.trim(c)
+            _ -> content
+          end
+
+        %{
+          "id" => id,
+          "title" => title,
+          "content" => decision_content,
+          "date" => date && Date.to_iso8601(date)
+        }
+
+      {:error, _} ->
+        nil
     end
   end
 
@@ -101,19 +167,84 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
     repo_path = Path.join([path, "repos", repo_id])
     context_path = Path.join(repo_path, "context.yml")
     notes_path = Path.join(repo_path, "notes.md")
+    decisions_path = Path.join(repo_path, "decisions")
 
     with :ok <- File.mkdir_p(repo_path),
          context_data = Context.to_map(context),
-         # Remove notes from context.yml (stored separately)
+         # Remove notes and decisions from context.yml (stored as markdown separately)
          context_data = Map.delete(context_data, "notes"),
+         context_data = Map.delete(context_data, "decisions"),
          :ok <- write_yaml(context_path, context_data) do
       # Write notes to separate file
-      if context.notes do
-        File.write(notes_path, context.notes)
-      else
-        :ok
+      notes_result =
+        if context.notes do
+          File.write(notes_path, context.notes)
+        else
+          :ok
+        end
+
+      # Write decisions to separate markdown files
+      decisions_result =
+        if context.decisions != [] do
+          save_decisions_as_markdown(decisions_path, context.decisions)
+        else
+          :ok
+        end
+
+      case {notes_result, decisions_result} do
+        {:ok, :ok} -> :ok
+        {{:error, reason}, _} -> {:error, reason}
+        {_, {:error, reason}} -> {:error, reason}
       end
     end
+  end
+
+  # Save decisions as individual markdown files
+  defp save_decisions_as_markdown(decisions_dir, decisions) do
+    with :ok <- File.mkdir_p(decisions_dir) do
+      Enum.reduce_while(decisions, :ok, fn decision, :ok ->
+        case save_decision_markdown(decisions_dir, decision) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp save_decision_markdown(decisions_dir, decision) do
+    slug = slugify(decision.title)
+    # Truncate slug to reasonable length (leaving room for number prefix and .md)
+    slug = String.slice(slug, 0, 80)
+    filename = "#{decision.id}-#{slug}.md"
+    filepath = Path.join(decisions_dir, filename)
+
+    date_str =
+      case decision.date do
+        %Date{} = d -> Date.to_iso8601(d)
+        nil -> Date.to_iso8601(Date.utc_today())
+      end
+
+    content = """
+    # ADR-#{decision.id}: #{decision.title}
+
+    **Date**: #{date_str}
+    **Status**: Accepted
+
+    ## Decision
+
+    #{decision.content}
+    """
+
+    File.write(filepath, content)
+  end
+
+  defp slugify(title) when is_binary(title) do
+    title
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9\s-]/, "")
+    |> String.replace(~r/\s+/, "-")
+    |> String.replace(~r/-+/, "-")
+    |> String.trim("-")
   end
 
   # Private helpers

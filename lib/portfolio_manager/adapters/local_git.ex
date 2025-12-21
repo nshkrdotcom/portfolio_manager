@@ -126,7 +126,118 @@ defmodule PortfolioManager.Adapters.LocalGit do
     find_repos(expanded, max_depth, exclude, 0)
   end
 
+  @doc """
+  Gets the count of commits in the last 30 days.
+  """
+  @spec commit_count_30d(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def commit_count_30d(path) do
+    case run_git(path, ["rev-list", "--count", "--since=30 days ago", "HEAD"]) do
+      {:ok, count_str} ->
+        count = count_str |> String.trim() |> String.to_integer()
+        {:ok, count}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets the count of unique contributors.
+  """
+  @spec contributor_count(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def contributor_count(path) do
+    case run_git(path, ["shortlog", "-sne", "HEAD"]) do
+      {:ok, output} ->
+        count =
+          output
+          |> String.split("\n")
+          |> Enum.reject(&(&1 == ""))
+          |> length()
+
+        {:ok, count}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets a list of contributors with commit counts.
+  """
+  @spec get_contributors(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def get_contributors(path) do
+    case run_git(path, ["shortlog", "-sne", "HEAD"]) do
+      {:ok, output} ->
+        contributors =
+          output
+          |> String.split("\n")
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.map(&parse_contributor_line/1)
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, contributors}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets the date of the first commit.
+  """
+  @spec first_commit_date(String.t()) :: {:ok, DateTime.t() | nil} | {:error, term()}
+  def first_commit_date(path) do
+    case run_git(path, ["log", "--reverse", "--format=%cI"]) do
+      {:ok, output} ->
+        case output |> String.split("\n") |> List.first() do
+          nil ->
+            {:ok, nil}
+
+          date_str ->
+            case DateTime.from_iso8601(String.trim(date_str)) do
+              {:ok, dt, _} -> {:ok, dt}
+              {:error, _} -> {:ok, nil}
+            end
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets the number of days since the last commit.
+  """
+  @spec days_since_last_commit(String.t()) :: {:ok, non_neg_integer()}
+  def days_since_last_commit(path) do
+    case get_last_commit_date(path) do
+      {:ok, nil} ->
+        {:ok, 0}
+
+      {:ok, %DateTime{} = last_commit} ->
+        now = DateTime.utc_now()
+        diff_seconds = DateTime.diff(now, last_commit)
+        days = div(diff_seconds, 86400)
+        {:ok, days}
+    end
+  end
+
   # Private helpers
+
+  defp parse_contributor_line(line) do
+    # Parse lines like: "    42\tJohn Doe <john@example.com>"
+    case Regex.run(~r/^\s*(\d+)\s+(.+?)\s+<(.+)>$/, line) do
+      [_, count_str, name, email] ->
+        %{
+          name: String.trim(name),
+          email: String.trim(email),
+          commits: String.to_integer(count_str)
+        }
+
+      _ ->
+        nil
+    end
+  end
 
   defp run_git(path, args) do
     case System.cmd("git", args, cd: path, stderr_to_stdout: true) do
