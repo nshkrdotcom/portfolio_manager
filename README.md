@@ -28,23 +28,24 @@ Portfolio Manager is a pure Elixir library for tracking and managing context abo
 - **Multi-LLM**: Works with Gemini, Codex, and Claude (any combination)
 - **Workflows**: Automated tasks (port sync, doc generation, health checks)
 
-All data is stored in a private git repository for versioning and backup.
+All structured data is stored in a private git repository for versioning and backup.
+Local-only state (cache, review queue, REPL history) lives in `.portfolio/` and is gitignored.
 
 ### RAG Integration
 
 Portfolio Manager integrates with an enhanced RAG system providing:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Portfolio Manager                         │
-│  semantic_search/3 | query/3 (agentic) | chat/3             │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Portfolio Manager                      │
+│      semantic_search/3 | query/3 (agentic) | chat/3       │
+└───────────────────────────────────────────────────────────┘
                             │
 ┌───────────────────────────┴───────────────────────────────┐
-│                     RAG Layer                              │
-│  Embeddings: gemini_ex    LLMs: gemini/codex/claude       │
-│  Search: Torus + pgvector  Agent: Tools + Memory          │
-└────────────────────────────────────────────────────────────┘
+│                      RAG Layer                            │
+│    Embeddings: gemini_ex    LLMs: gemini/codex/claude     │
+│     Search: Torus + pgvector  Agent: Tools + Memory       │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ## Installation
@@ -73,8 +74,10 @@ mix deps.get
 # Initialize a portfolio
 mix portfolio.init ~/my-portfolio
 
-# Scan directories for repositories
+# Scan directories for repositories (defaults to config.yml)
+mix portfolio.scan
 mix portfolio.scan ~/projects ~/work
+mix portfolio.scan --agentic --review
 
 # List tracked repos
 mix portfolio.list
@@ -100,9 +103,14 @@ mix portfolio.ask "which repos use phoenix?"
 # Show portfolio status
 mix portfolio.status
 
+# Graph and review agentic detections
+mix portfolio.graph
+mix portfolio.review --accept-all --threshold=0.9
+
 # Sync portfolio state
 mix portfolio.sync
-mix portfolio.sync --all --views
+mix portfolio.sync --full --views
+mix portfolio.sync --computed-only --check-remotes
 
 # Run workflows
 mix portfolio.run --list
@@ -146,26 +154,44 @@ results = PortfolioManager.semantic_search(portfolio, "error handling patterns")
 :ok = PortfolioManager.generate_views(portfolio)
 ```
 
+## Guides
+
+- [01 Overview and Concepts](guides/01_overview.md) - mental model and vocabulary
+- [02 Installation and Initialization](guides/02_installation_and_init.md) - install and bootstrap
+- [03 Configuration and Structure](guides/03_configuration_and_structure.md) - config and layout
+- [04 CLI Reference](guides/04_cli_reference.md) - command-by-command guide
+- [05 Detection and Metadata](guides/05_detection_and_metadata.md) - detection sources and computed fields
+- [06 Agentic Detection and Review](guides/06_agentic_detection_and_review.md) - LLM detection and review queue
+- [07 Views and Graph](guides/07_views_and_graph.md) - computed views and relationship graphs
+- [08 Workflows](guides/08_workflows.md) - YAML workflows and step types
+- [09 Search and Cache](guides/09_search_and_cache.md) - search modes and SQLite cache
+- [10 Library API](guides/10_library_api.md) - API overview and adapters
+- [11 Operations and Migration](guides/11_operations_and_migration.md) - centralized operations
+
 ## Configuration
 
 Portfolio Manager uses a configuration file at the root of your portfolio repo.
 
 ### Default Portfolio Location
 
-By default, the portfolio repo is expected at `../portfolio` relative to your working directory. Override this:
+By default, the portfolio repo is expected at `~/portfolio`. Override this with `PORTFOLIO_DIR` or app config:
+
+```bash
+export PORTFOLIO_DIR=~/p/g/n/portfolio
+```
 
 ```elixir
 # In config/config.exs
 config :portfolio_manager,
-  portfolio_path: "~/my-portfolio",  # Custom path
-  auto_sync: true,                   # Auto-commit changes
-  embedding_provider: :gemini,       # :gemini | :openai | :none
-  embedding_dimensions: 768          # 768 | 1536 | 3072
+  portfolio_path: "~/my-portfolio"
 ```
 
 ### Environment Variables
 
 ```bash
+# Portfolio location override
+export PORTFOLIO_DIR=~/p/g/n/portfolio
+
 # Required for embeddings
 export GOOGLE_API_KEY="your-gemini-api-key"
 
@@ -185,25 +211,13 @@ scan:
   directories:
     - ~/projects
     - ~/work
-  exclude:
-    - "**/node_modules"
-    - "**/.git"
+  exclude_patterns:
+    - "**/node_modules/**"
+    - "**/.git/**"
 
-accounts:
-  - id: personal
-    host: github.com
-    username: myuser
-  - id: work
-    host: github.enterprise.com
-    username: work-user
-
-detection:
-  agentic: true
-  confidence_threshold: 0.85
-
-sync:
-  auto_commit: true
-  commit_message_prefix: "[portfolio]"
+agents:
+  enabled: true
+  auto_detect: true
 ```
 
 ## API Reference
@@ -213,7 +227,7 @@ sync:
 ```elixir
 # Initialization
 PortfolioManager.init(path)           # Initialize/load portfolio
-PortfolioManager.init()               # Use default path from config
+PortfolioManager.init()               # Use PORTFOLIO_DIR or ~/portfolio
 
 # Discovery
 PortfolioManager.scan(portfolio, dirs) # Scan directories for repos
@@ -269,25 +283,25 @@ PortfolioManager.sync(portfolio)
 Portfolio Manager uses hexagonal architecture:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        APPLICATION                           │
-│  PortfolioManager (main API)                                │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                        APPLICATION                        │
+│               PortfolioManager (main API)                 │
+└───────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────┴─────────────────────────────┐
-│                         DOMAIN                             │
-│  Repo | Context | Relationship | Detection | Search       │
-└─────────────────────────────────────────────────────────────┘
+│                           DOMAIN                          │
+│    Repo | Context | Relationship | Detection | Search     │
+└───────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────┴─────────────────────────────┐
-│                         PORTS                              │
-│  StoragePort | GitPort | EmbeddingPort | DetectionPort    │
-└─────────────────────────────────────────────────────────────┘
+│                           PORTS                           │
+│   StoragePort | GitPort | EmbeddingPort | DetectionPort   │
+└───────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────┴─────────────────────────────┐
-│                        ADAPTERS                            │
+│                         ADAPTERS                          │
 │  YAMLStorage | LocalGit | GeminiEmbedding | FileDetector  │
-└─────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────┘
 ```
 
 ## Examples
@@ -387,22 +401,28 @@ IO.inspect(result.tools_used)
 Define automated multi-step tasks in YAML:
 
 ```yaml
-# ~/.portfolio/workflows/my-workflow.yml
-name: my-workflow
-description: Custom workflow example
-steps:
-  - name: check-status
-    type: git
-    action: status
+# ~/portfolio/workflows/my-workflow.yml
+schema_version: 1
+workflow:
+  id: my-workflow
+  name: "My Workflow"
+  description: Custom workflow example
+  steps:
+    - id: check-status
+      type: git
+      action: status
 
-  - name: run-tests
-    type: shell
-    command: mix test
-    continue_on_error: true
+    - id: run-tests
+      type: shell
+      action: run
+      inputs:
+        command: mix test
 
-  - name: analyze
-    type: agent
-    prompt: "Analyze the test results and suggest improvements"
+    - id: analyze
+      type: agent
+      action: analyze
+      inputs:
+        prompt: "Analyze the test results and suggest improvements"
 ```
 
 Run workflows:
@@ -446,7 +466,7 @@ For large portfolios, enable SQLite caching for faster queries:
 
 # Start the cache
 {:ok, cache} = PortfolioManager.Cache.SQLite.start_link(
-  portfolio_path: "~/.portfolio"
+  portfolio_path: "~/portfolio"
 )
 
 # Sync repos to cache

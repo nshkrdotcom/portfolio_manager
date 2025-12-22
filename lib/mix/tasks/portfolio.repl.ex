@@ -17,6 +17,9 @@ defmodule Mix.Tasks.Portfolio.Repl do
     * `edit <id> <field>=<value>` - Edit repository
     * `sync` - Synchronize portfolio
     * `status` - Show portfolio status
+    * `graph [id]` - Show relationship graph
+    * `history [n]` - Show recent commands
+    * `!n` - Re-run command number n
     * `help` - Show available commands
     * `exit` or `quit` - Exit REPL
 
@@ -34,6 +37,8 @@ defmodule Mix.Tasks.Portfolio.Repl do
   @shortdoc "Start interactive portfolio session"
 
   use Mix.Task
+
+  alias PortfolioManager.CLI.{Exit, History}
 
   @impl Mix.Task
   def run(args) do
@@ -63,17 +68,21 @@ defmodule Mix.Tasks.Portfolio.Repl do
         Type 'help' for available commands, 'exit' to quit.
         """)
 
-        loop(portfolio)
+        history_path = repl_history_path(portfolio_path)
+        history = History.load(history_path)
+        loop(portfolio, history, history_path)
 
       {:error, :not_initialized} ->
         Mix.shell().error("""
         Portfolio not found at #{portfolio_path}
         Run `mix portfolio.init` first.
         """)
+
+        Exit.halt(:config)
     end
   end
 
-  defp loop(portfolio) do
+  defp loop(portfolio, history, history_path) do
     prompt = "#{IO.ANSI.green()}portfolio>#{IO.ANSI.reset()} "
 
     case IO.gets(prompt) do
@@ -83,22 +92,34 @@ defmodule Mix.Tasks.Portfolio.Repl do
       input when is_binary(input) ->
         input = String.trim(input)
 
-        case handle_input(input, portfolio) do
-          :exit ->
+        case handle_input(input, portfolio, history, history_path) do
+          {:exit, _history} ->
             IO.puts("Goodbye!")
 
-          :continue ->
-            loop(portfolio)
+          {:continue, updated_history} ->
+            loop(portfolio, updated_history, history_path)
         end
     end
   end
 
-  defp handle_input("", _portfolio), do: :continue
-  defp handle_input("exit", _portfolio), do: :exit
-  defp handle_input("quit", _portfolio), do: :exit
-  defp handle_input("q", _portfolio), do: :exit
+  defp handle_input(input, portfolio, history, history_path) do
+    case History.expand(history, input) do
+      {:ok, expanded} ->
+        history = History.append(history, history_path, expanded)
+        do_handle_input(expanded, portfolio, history, history_path)
 
-  defp handle_input("help", _portfolio) do
+      {:error, message} ->
+        IO.puts(message)
+        {:continue, history}
+    end
+  end
+
+  defp do_handle_input("", _portfolio, history, _history_path), do: {:continue, history}
+  defp do_handle_input("exit", _portfolio, history, _history_path), do: {:exit, history}
+  defp do_handle_input("quit", _portfolio, history, _history_path), do: {:exit, history}
+  defp do_handle_input("q", _portfolio, history, _history_path), do: {:exit, history}
+
+  defp do_handle_input("help", _portfolio, history, _history_path) do
     IO.puts("""
 
     #{IO.ANSI.cyan()}Available Commands#{IO.ANSI.reset()}
@@ -124,23 +145,32 @@ defmodule Mix.Tasks.Portfolio.Repl do
 
     #{IO.ANSI.yellow()}graph#{IO.ANSI.reset()} [id]            Show relationship graph
 
+    #{IO.ANSI.yellow()}history#{IO.ANSI.reset()} [n]           Show recent commands
+    #{IO.ANSI.yellow()}!n#{IO.ANSI.reset()}                    Re-run command number n
+
     #{IO.ANSI.yellow()}help#{IO.ANSI.reset()}                  Show this help
 
     #{IO.ANSI.yellow()}exit#{IO.ANSI.reset()}, #{IO.ANSI.yellow()}quit#{IO.ANSI.reset()}, #{IO.ANSI.yellow()}q#{IO.ANSI.reset()}        Exit REPL
     """)
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("list" <> rest, portfolio) do
+  defp do_handle_input("history" <> rest, _portfolio, history, _history_path) do
+    count = History.parse_count(rest)
+    print_history(history, count)
+    {:continue, history}
+  end
+
+  defp do_handle_input("list" <> rest, portfolio, history, _history_path) do
     args = parse_args(String.trim(rest))
     repos = PortfolioManager.list_repos(portfolio)
     filtered = apply_filters(repos, args)
     print_repos(filtered)
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("show " <> id, portfolio) do
+  defp do_handle_input("show " <> id, portfolio, history, _history_path) do
     id = String.trim(id)
 
     case PortfolioManager.get_context(portfolio, id) do
@@ -151,10 +181,10 @@ defmodule Mix.Tasks.Portfolio.Repl do
         IO.puts("#{IO.ANSI.red()}Repository '#{id}' not found#{IO.ANSI.reset()}")
     end
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("search " <> query, portfolio) do
+  defp do_handle_input("search " <> query, portfolio, history, _history_path) do
     query = String.trim(query)
     results = PortfolioManager.search(portfolio, query)
 
@@ -165,10 +195,10 @@ defmodule Mix.Tasks.Portfolio.Repl do
       print_repos(results)
     end
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("ask " <> question, portfolio) do
+  defp do_handle_input("ask " <> question, portfolio, history, _history_path) do
     question = String.trim(question)
     IO.puts("\n#{IO.ANSI.yellow()}Thinking...#{IO.ANSI.reset()}")
 
@@ -180,10 +210,10 @@ defmodule Mix.Tasks.Portfolio.Repl do
         IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
     end
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("edit " <> rest, portfolio) do
+  defp do_handle_input("edit " <> rest, portfolio, history, _history_path) do
     case String.split(String.trim(rest), " ", parts: 2) do
       [id, updates_str] ->
         updates = parse_updates(updates_str)
@@ -201,25 +231,25 @@ defmodule Mix.Tasks.Portfolio.Repl do
         IO.puts("Usage: edit <id> <field>=<value>")
     end
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("sync", portfolio) do
+  defp do_handle_input("sync", portfolio, history, _history_path) do
     case PortfolioManager.sync(portfolio) do
       :ok -> IO.puts("#{IO.ANSI.green()}Portfolio synchronized#{IO.ANSI.reset()}")
       {:error, reason} -> IO.puts("#{IO.ANSI.red()}Error: #{inspect(reason)}#{IO.ANSI.reset()}")
     end
 
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("status", portfolio) do
+  defp do_handle_input("status", portfolio, history, _history_path) do
     stats = PortfolioManager.status(portfolio)
     print_status(stats)
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input("graph" <> rest, portfolio) do
+  defp do_handle_input("graph" <> rest, portfolio, history, _history_path) do
     graph = PortfolioManager.Graph.build(portfolio)
     root = String.trim(rest)
 
@@ -227,13 +257,13 @@ defmodule Mix.Tasks.Portfolio.Repl do
     ascii = PortfolioManager.Graph.to_ascii(graph, opts)
 
     IO.puts("\n#{ascii}\n")
-    :continue
+    {:continue, history}
   end
 
-  defp handle_input(input, _portfolio) do
+  defp do_handle_input(input, _portfolio, history, _history_path) do
     IO.puts("Unknown command: #{input}")
     IO.puts("Type 'help' for available commands.")
-    :continue
+    {:continue, history}
   end
 
   defp parse_args(str) do
@@ -400,6 +430,22 @@ defmodule Mix.Tasks.Portfolio.Repl do
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
+  end
+
+  defp repl_history_path(portfolio_path) do
+    Path.join([portfolio_path, ".portfolio", "state", "repl_history"])
+  end
+
+  defp print_history(history, count) do
+    entries = History.recent(history, count)
+
+    if entries == [] do
+      IO.puts("No history yet.")
+    else
+      Enum.each(entries, fn {index, command} ->
+        IO.puts("#{String.pad_leading(Integer.to_string(index), 4)}  #{command}")
+      end)
+    end
   end
 end

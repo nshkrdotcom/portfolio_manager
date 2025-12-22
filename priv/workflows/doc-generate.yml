@@ -1,39 +1,70 @@
-name: doc-generate
-description: Generate documentation for a repository
-version: "1.0"
+schema_version: 1
 
-steps:
-  - name: detect_language
-    description: Detect project language
-    context:
-      from:
-        lang: "repo.language"
+workflow:
+  id: doc-generate
+  name: "Documentation Generation"
+  description: "Generate or update repository documentation"
+  version: 1.0.0
 
-  - name: run_elixir_docs
-    description: Generate Elixir docs
-    shell:
-      command: mix docs
-      cwd: "{{repo.path}}"
-    when: "lang == elixir"
-    continue_on_error: true
+  target: repo
 
-  - name: run_python_docs
-    description: Generate Python docs
-    shell:
-      command: pdoc --html . --output-dir docs 2>/dev/null || echo "pdoc not available"
-      cwd: "{{repo.path}}"
-    when: "lang == python"
-    continue_on_error: true
+  inputs:
+    repo_id:
+      type: string
+      required: true
 
-  - name: run_js_docs
-    description: Generate JavaScript docs
-    shell:
-      command: npm run docs 2>/dev/null || npx typedoc 2>/dev/null || echo "No doc generator"
-      cwd: "{{repo.path}}"
-    when: "lang == javascript"
-    continue_on_error: true
+    doc_types:
+      type: array
+      default: [readme, architecture]
 
-  - name: record_docs
-    description: Record documentation generation
-    update:
-      note: "Documentation generated for {{repo.name}}"
+  steps:
+    - id: get_context
+      type: context
+      action: get_related_context
+      inputs:
+        repo_id: $inputs.repo_id
+        depth: 1
+      outputs:
+        context: full_context
+
+    - id: read_existing_docs
+      type: file
+      action: read
+      inputs:
+        path: $portfolio_path/repos/$inputs.repo_id/
+        patterns: ["*.md"]
+      outputs:
+        files: existing_docs
+
+    - id: generate_docs
+      type: agent
+      action: generate
+      provider: claude
+      inputs:
+        prompt: |
+          Generate documentation for this project.
+
+          Project: {{full_context.repo.name}}
+          Purpose: {{full_context.repo.purpose}}
+          Existing docs: {{existing_docs}}
+      outputs:
+        output: generated_docs
+
+    - id: write_docs
+      type: file
+      action: write
+      inputs:
+        path: $portfolio_path/repos/$inputs.repo_id/
+        files: $generated_docs
+
+    - id: update_context
+      type: update
+      action: update_context
+      inputs:
+        repo_id: $inputs.repo_id
+        updates:
+          computed:
+            docs_updated_at: $now
+
+  outputs:
+    docs: $generated_docs

@@ -158,5 +158,20 @@ defmodule PortfolioManager.Adapters.LocalGitTest do
       assert length(repos) == 1
       assert hd(repos) |> String.ends_with?("good-repo")
     end
+
+    test "excludes glob patterns with path segments" do
+      base = Path.join(System.tmp_dir!(), "exclude_glob_#{:rand.uniform(10000)}")
+      File.mkdir_p!(base)
+
+      create_test_repo(Path.join(base, "keep-repo"))
+      create_test_repo(Path.join(base, "skip-repo"))
+
+      on_exit(fn -> File.rm_rf!(base) end)
+
+      repos = LocalGit.discover_repos(base, exclude: ["**/skip-repo/**"])
+
+      assert length(repos) == 1
+      assert hd(repos) |> String.ends_with?("keep-repo")
+    end
   end
 end

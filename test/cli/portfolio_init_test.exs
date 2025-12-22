@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Portfolio.InitTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO
 
@@ -45,6 +45,22 @@ defmodule Mix.Tasks.Portfolio.InitTest do
 
       assert output =~ "Usage"
       assert output =~ "portfolio.init"
+    end
+
+    test "uses PORTFOLIO_DIR when no path is provided", %{tmp_dir: tmp_dir} do
+      System.put_env("PORTFOLIO_DIR", tmp_dir)
+
+      on_exit(fn -> System.delete_env("PORTFOLIO_DIR") end)
+
+      output =
+        capture_io(fn ->
+          Mix.Tasks.Portfolio.Init.run([])
+        end)
+
+      assert output =~ tmp_dir
+      assert File.exists?(Path.join(tmp_dir, "registry.yml"))
+      assert File.exists?(Path.join(tmp_dir, "config.yml"))
+      assert File.dir?(Path.join(tmp_dir, "repos"))
     end
   end
 end

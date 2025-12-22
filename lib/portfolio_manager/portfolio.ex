@@ -78,7 +78,12 @@ defmodule PortfolioManager.Portfolio do
   """
   @spec add_repo(GenServer.server(), String.t()) :: {:ok, Repo.t()} | {:error, term()}
   def add_repo(server, path) do
-    GenServer.call(server, {:add_repo, path})
+    add_repo(server, path, [])
+  end
+
+  @spec add_repo(GenServer.server(), String.t(), keyword()) :: {:ok, Repo.t()} | {:error, term()}
+  def add_repo(server, path, opts) when is_list(opts) do
+    GenServer.call(server, {:add_repo, path, opts})
   end
 
   @doc """
@@ -128,7 +133,12 @@ defmodule PortfolioManager.Portfolio do
   """
   @spec scan(GenServer.server(), [String.t()]) :: {:ok, [Repo.t()]} | {:error, term()}
   def scan(server, directories) do
-    GenServer.call(server, {:scan, directories}, :infinity)
+    scan(server, directories, [])
+  end
+
+  @spec scan(GenServer.server(), [String.t()], keyword()) :: {:ok, [Repo.t()]} | {:error, term()}
+  def scan(server, directories, opts) when is_list(opts) do
+    GenServer.call(server, {:scan, directories, opts}, :infinity)
   end
 
   @doc """
@@ -204,25 +214,38 @@ defmodule PortfolioManager.Portfolio do
     end
   end
 
-  def handle_call({:add_repo, path}, _from, state) do
+  def handle_call({:add_repo, path}, from, state) do
+    handle_call({:add_repo, path, []}, from, state)
+  end
+
+  def handle_call({:add_repo, path, opts}, _from, state) do
     expanded = Path.expand(path)
     git_adapter = Git.adapter()
     detection_adapter = Detection.adapter()
+    detect? = Keyword.get(opts, :detect, true)
+
+    id_override = Keyword.get(opts, :id)
+    type_override = Keyword.get(opts, :type)
+    status_override = Keyword.get(opts, :status, :active)
+    language_override = Keyword.get(opts, :language)
 
     with true <- git_adapter.is_repo?(expanded),
          {:ok, git_info} <- git_adapter.get_info(expanded),
-         {:ok, detection} <- detection_adapter.detect(expanded) do
-      repo_id = Repo.generate_id(expanded)
+         {:ok, detection} <- maybe_detect(detection_adapter, expanded, detect?) do
+      repo_id = id_override || Repo.generate_id(expanded)
       name = Path.basename(expanded)
+      type = type_override || detection.type
+      language = language_override || detection.language
 
       repo_attrs = %{
         id: repo_id,
         name: name,
         path: expanded,
         remote_url: git_info.remote_url,
-        type: detection.type,
-        status: :active,
-        language: detection.language
+        type: type,
+        status: status_override,
+        language: language,
+        framework: detection.framework
       }
 
       case Repo.new(repo_attrs) do
@@ -297,14 +320,21 @@ defmodule PortfolioManager.Portfolio do
     {:reply, results, state}
   end
 
-  def handle_call({:scan, directories}, _from, state) do
+  def handle_call({:scan, directories}, from, state) do
+    handle_call({:scan, directories, []}, from, state)
+  end
+
+  def handle_call({:scan, directories, opts}, _from, state) do
     git_adapter = Git.adapter()
+    detection_adapter = Detection.adapter()
+    detect? = Keyword.get(opts, :detect, true)
+    exclude = Keyword.get(opts, :exclude, [])
 
     discovered =
       directories
       |> Enum.flat_map(fn dir ->
         expanded = Path.expand(dir)
-        git_adapter.discover_repos(expanded)
+        git_adapter.discover_repos(expanded, exclude: exclude)
       end)
       |> Enum.uniq()
 
@@ -319,25 +349,20 @@ defmodule PortfolioManager.Portfolio do
       discovered
       |> Enum.reject(&MapSet.member?(existing_paths, &1))
       |> Enum.map(fn path ->
-        # Use same logic as add_repo but collect results
-        detection_adapter = Detection.adapter()
-
-        case detection_adapter.detect(path) do
-          {:ok, detection} ->
-            {:ok, git_info} = git_adapter.get_info(path)
-
-            %{
-              id: Repo.generate_id(path),
-              name: Path.basename(path),
-              path: path,
-              remote_url: git_info.remote_url,
-              type: detection.type,
-              status: :active,
-              language: detection.language
-            }
-
-          {:error, _} ->
-            nil
+        with {:ok, detection} <- maybe_detect(detection_adapter, path, detect?),
+             {:ok, git_info} <- git_adapter.get_info(path) do
+          %{
+            id: Repo.generate_id(path),
+            name: Path.basename(path),
+            path: path,
+            remote_url: git_info.remote_url,
+            type: detection.type,
+            status: :active,
+            language: detection.language,
+            framework: detection.framework
+          }
+        else
+          _ -> nil
         end
       end)
       |> Enum.reject(&is_nil/1)
@@ -379,4 +404,16 @@ defmodule PortfolioManager.Portfolio do
     stats = Registry.stats(state.registry)
     {:reply, stats, state}
   end
+
+  defp maybe_detect(_adapter, _path, false) do
+    {:ok,
+     %{
+       type: :unknown,
+       language: :unknown,
+       framework: nil,
+       dependencies: %{runtime: [], dev: [], optional: []}
+     }}
+  end
+
+  defp maybe_detect(adapter, path, true), do: adapter.detect(path)
 end

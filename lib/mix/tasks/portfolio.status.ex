@@ -16,6 +16,8 @@ defmodule Mix.Tasks.Portfolio.Status do
 
   use Mix.Task
 
+  alias PortfolioManager.CLI.Exit
+
   @impl Mix.Task
   def run(args) do
     {opts, _args, _} =
@@ -48,6 +50,8 @@ defmodule Mix.Tasks.Portfolio.Status do
           Portfolio not found at #{portfolio_path}
           Run `mix portfolio.init` first.
           """)
+
+          Exit.halt(:config)
       end
     end
   end
@@ -111,6 +115,6 @@ defmodule Mix.Tasks.Portfolio.Status do
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

@@ -3,7 +3,6 @@ defmodule PortfolioManager.Workflow.Engine do
   Workflow execution engine.
 
   Executes multi-step workflows defined in YAML files.
-  Workflows can include git operations, shell commands, and agent steps.
   """
 
   alias PortfolioManager.Workflow.{Parser, Context, Step}
@@ -14,13 +13,14 @@ defmodule PortfolioManager.Workflow.Engine do
   ## Options
 
     * `:portfolio` - Portfolio server (required)
+    * `:inputs` - Workflow inputs (map)
     * `:repo_id` - Target repository ID (optional)
     * `:dry_run` - Don't execute, just show what would happen
     * `:verbose` - Show detailed output
 
   ## Examples
 
-      iex> Engine.run("port-check", portfolio: portfolio, repo_id: "my-port")
+      iex> Engine.run("port-check", portfolio: portfolio, inputs: %{"repo_id" => "my-port"})
       {:ok, %{steps: 5, completed: 5, failed: 0}}
 
   """
@@ -52,6 +52,7 @@ defmodule PortfolioManager.Workflow.Engine do
       {:ok, workflow} ->
         {:ok,
          %{
+           id: workflow.id,
            name: workflow.name,
            description: workflow.description,
            steps: Enum.map(workflow.steps, &step_summary/1)
@@ -66,16 +67,26 @@ defmodule PortfolioManager.Workflow.Engine do
 
   defp build_context(workflow, opts) do
     portfolio = Keyword.get(opts, :portfolio)
-    repo_id = Keyword.get(opts, :repo_id)
+    inputs = normalize_inputs(Keyword.get(opts, :inputs, %{}))
+    repo_id = Keyword.get(opts, :repo_id) || Map.get(inputs, "repo_id")
+    inputs = if repo_id, do: Map.put_new(inputs, "repo_id", repo_id), else: inputs
+    inputs = apply_input_defaults(inputs, workflow.inputs || %{})
+
+    base_vars = %{
+      "now" => DateTime.to_iso8601(DateTime.utc_now()),
+      "portfolio_path" =>
+        portfolio && PortfolioManager.Portfolio.get_storage_state(portfolio).path
+    }
 
     base_context = %{
-      workflow: workflow.name,
+      workflow: workflow.id,
       started_at: DateTime.utc_now(),
-      vars: Map.get(workflow, :vars) || %{}
+      inputs: inputs,
+      vars: base_vars
     }
 
     context =
-      if repo_id do
+      if repo_id && portfolio do
         case PortfolioManager.get_repo(portfolio, repo_id) do
           {:ok, repo} ->
             {:ok, ctx} = PortfolioManager.get_context(portfolio, repo_id)
@@ -121,13 +132,18 @@ defmodule PortfolioManager.Workflow.Engine do
         else
           case Step.execute(step, ctx, opts) do
             {:ok, new_ctx, result} ->
+              updated_ctx =
+                new_ctx
+                |> Context.set_result(step.id, result)
+                |> apply_outputs(step.id, step.outputs, result)
+
               new_state = %{
                 state
                 | completed: state.completed + 1,
                   results: state.results ++ [{step.name, :ok, result}]
               }
 
-              {:cont, {new_ctx, new_state}}
+              {:cont, {updated_ctx, new_state}}
 
             {:skip, reason} ->
               new_state = %{
@@ -139,29 +155,58 @@ defmodule PortfolioManager.Workflow.Engine do
               {:cont, {ctx, new_state}}
 
             {:error, reason} ->
-              if step.continue_on_error do
-                new_state = %{
-                  state
-                  | failed: state.failed + 1,
-                    results: state.results ++ [{step.name, :error, reason}]
-                }
+              continue? = step.on_failure in ["continue", :continue]
 
+              new_state = %{
+                state
+                | failed: state.failed + 1,
+                  results: state.results ++ [{step.name, :error, reason}]
+              }
+
+              if continue? do
                 {:cont, {ctx, new_state}}
               else
-                new_state = %{
-                  state
-                  | failed: state.failed + 1,
-                    results: state.results ++ [{step.name, :error, reason}]
-                }
-
                 {:halt, {ctx, new_state}}
               end
           end
         end
       end)
 
-    {_final_ctx, final_state} = result
-    {:ok, Map.delete(final_state, :results) |> Map.put(:details, final_state.results)}
+    {final_ctx, final_state} = result
+
+    outputs = extract_outputs(workflow.outputs || %{}, final_ctx)
+
+    {:ok,
+     final_state
+     |> Map.delete(:results)
+     |> Map.put(:details, final_state.results)
+     |> Map.put(:outputs, outputs)}
+  end
+
+  defp apply_outputs(ctx, step_id, outputs, result) do
+    outputs = outputs || %{}
+
+    if map_size(outputs) == 0 do
+      Context.set_var(ctx, to_string(step_id), result)
+    else
+      Enum.reduce(outputs, ctx, fn {output_key, var_name}, acc ->
+        value = fetch_output_value(result, output_key)
+        Context.set_var(acc, to_string(var_name), value)
+      end)
+    end
+  end
+
+  defp fetch_output_value(result, key) when is_map(result) do
+    Map.get(result, key) || Map.get(result, to_string(key)) ||
+      Map.get(result, String.to_atom(to_string(key)))
+  end
+
+  defp fetch_output_value(result, _key), do: result
+
+  defp extract_outputs(outputs, ctx) do
+    Map.new(outputs, fn {key, value} ->
+      {key, Context.resolve_inputs(ctx, value)}
+    end)
   end
 
   defp workflow_dirs do
@@ -170,7 +215,7 @@ defmodule PortfolioManager.Workflow.Engine do
 
     user_dir =
       case System.get_env("PORTFOLIO_DIR") do
-        nil -> Path.join(System.user_home!(), ".portfolio/workflows")
+        nil -> Path.join(System.user_home!(), "portfolio/workflows")
         dir -> Path.join(dir, "workflows")
       end
 
@@ -188,9 +233,12 @@ defmodule PortfolioManager.Workflow.Engine do
   defp load_workflow_metadata(path) do
     case YamlElixir.read_from_file(path) do
       {:ok, data} ->
+        workflow = Map.get(data, "workflow") || %{}
+
         %{
-          name: Path.basename(path, ".yml"),
-          description: Map.get(data, "description", ""),
+          id: Map.get(workflow, "id") || Path.basename(path, ".yml"),
+          name: Map.get(workflow, "name", Path.basename(path, ".yml")),
+          description: Map.get(workflow, "description", ""),
           path: path
         }
 
@@ -201,9 +249,29 @@ defmodule PortfolioManager.Workflow.Engine do
 
   defp step_summary(step) do
     %{
+      id: step.id,
       name: step.name,
       type: step.type,
-      description: step[:description]
+      action: step.action
     }
+  end
+
+  defp normalize_inputs(inputs) when is_map(inputs) do
+    Map.new(inputs, fn {k, v} -> {to_string(k), v} end)
+  end
+
+  defp apply_input_defaults(inputs, definitions) when is_map(definitions) do
+    Enum.reduce(definitions, inputs, fn {key, defn}, acc ->
+      key = to_string(key)
+
+      if Map.has_key?(acc, key) do
+        acc
+      else
+        case Map.get(defn, "default") || Map.get(defn, :default) do
+          nil -> acc
+          default -> Map.put(acc, key, default)
+        end
+      end
+    end)
   end
 end

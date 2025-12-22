@@ -210,7 +210,84 @@ defmodule PortfolioManager.Detection.Agentic do
         _ -> results
       end
 
+    results =
+      case opts[:portfolio] do
+        nil ->
+          results
+
+        portfolio ->
+          case detect_relationships(repo_path, portfolio, opts) do
+            {:ok, rels} -> Map.put(results, :relationships, rels)
+            _ -> results
+          end
+      end
+
     {:ok, results}
+  end
+
+  @doc """
+  Runs agentic analysis and queues items for human review.
+  """
+  @spec analyze_with_review(String.t(), GenServer.server(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def analyze_with_review(repo_path, portfolio, opts \\ []) do
+    repo_id = Keyword.get(opts, :repo_id) || Path.basename(repo_path)
+    threshold = Keyword.get(opts, :auto_accept_threshold, 0.9)
+
+    with {:ok, results} <- analyze(repo_path, Keyword.put(opts, :portfolio, portfolio)) do
+      items = build_review_items(repo_id, results)
+
+      {auto_accept, pending} =
+        Enum.split_with(items, fn item ->
+          is_number(item["confidence"]) and item["confidence"] >= threshold
+        end)
+
+      {applied, still_pending} =
+        Enum.reduce(auto_accept, {0, pending}, fn item, {applied_count, pending_acc} ->
+          case apply_review_item(portfolio, item) do
+            :ok -> {applied_count + 1, pending_acc}
+            {:error, _} -> {applied_count, [item | pending_acc]}
+          end
+        end)
+
+      :ok = PortfolioManager.Detection.ReviewStore.append_pending(portfolio, still_pending)
+
+      {:ok, %{applied: applied, pending: length(still_pending)}}
+    end
+  end
+
+  @doc """
+  Applies a review item to the portfolio.
+  """
+  @spec apply_review_item(GenServer.server(), map()) :: :ok | {:error, term()}
+  def apply_review_item(portfolio, item) do
+    repo_id = item["repo_id"]
+    field = item["field"]
+    value = item["value"]
+
+    case field do
+      "purpose" ->
+        apply_update(portfolio, repo_id, %{purpose: value})
+
+      "type" ->
+        apply_update(portfolio, repo_id, %{type: value})
+
+      "status" ->
+        apply_update(portfolio, repo_id, %{status: value})
+
+      "relationship" ->
+        rel = value || %{}
+        to = Map.get(rel, "to")
+        type = Map.get(rel, "type", "related_to")
+
+        case PortfolioManager.add_relationship(portfolio, repo_id, to, String.to_atom(type)) do
+          {:ok, _} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      _ ->
+        {:error, :unknown_field}
+    end
   end
 
   # Private helpers
@@ -315,21 +392,108 @@ defmodule PortfolioManager.Detection.Agentic do
     end
   end
 
-  defp query_llm(prompt, _opts) do
-    # Try to use Gemini directly if available
-    case Code.ensure_loaded?(Rag.Ai.Gemini) do
-      true ->
-        provider = Rag.Ai.Gemini.new(%{})
+  defp query_llm(prompt, opts) do
+    router_opts =
+      case opts[:provider] do
+        nil -> []
+        provider -> [providers: [provider]]
+      end
 
-        case Rag.Ai.Gemini.generate_text(provider, prompt, []) do
-          {:ok, response} -> {:ok, response}
-          {:error, _} = error -> error
-        end
-
-      false ->
-        # Fallback: return error if RAG not available
-        {:error, :rag_not_available}
+    with {:ok, router} <- PortfolioManager.Rag.create_router(router_opts),
+         {:ok, response, _router} <- Rag.Router.execute(router, :text, prompt, []) do
+      {:ok, response}
+    else
+      {:error, _} = error -> error
     end
+  end
+
+  defp apply_update(portfolio, repo_id, updates) do
+    case PortfolioManager.update_context(portfolio, repo_id, updates) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_review_items(repo_id, results) do
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    base = fn field, value, confidence, reasoning ->
+      %{
+        "id" => build_review_id(repo_id, field),
+        "repo_id" => repo_id,
+        "field" => field,
+        "value" => value,
+        "confidence" => confidence,
+        "reasoning" => reasoning,
+        "status" => "pending",
+        "created_at" => timestamp
+      }
+    end
+
+    items = []
+
+    items =
+      case Map.get(results, :purpose) do
+        %{purpose: purpose, confidence: confidence} ->
+          [base.("purpose", purpose, confidence, nil) | items]
+
+        _ ->
+          items
+      end
+
+    items =
+      case Map.get(results, :type) do
+        %{type: type, confidence: confidence, reasoning: reasoning} ->
+          [base.("type", to_string(type), confidence, reasoning) | items]
+
+        %{type: type, confidence: confidence} ->
+          [base.("type", to_string(type), confidence, nil) | items]
+
+        _ ->
+          items
+      end
+
+    items =
+      case Map.get(results, :status) do
+        %{status: status, confidence: confidence, reasoning: reasoning} ->
+          [base.("status", to_string(status), confidence, reasoning) | items]
+
+        %{status: status, confidence: confidence} ->
+          [base.("status", to_string(status), confidence, nil) | items]
+
+        _ ->
+          items
+      end
+
+    items =
+      case Map.get(results, :relationships) do
+        rels when is_list(rels) ->
+          rel_items =
+            Enum.map(rels, fn rel ->
+              base.(
+                "relationship",
+                %{
+                  "from" => repo_id,
+                  "to" => rel.to,
+                  "type" => to_string(rel.type)
+                },
+                Map.get(rel, :confidence, 0.7),
+                Map.get(rel, :reasoning)
+              )
+            end)
+
+          rel_items ++ items
+
+        _ ->
+          items
+      end
+
+    Enum.reverse(items)
+  end
+
+  defp build_review_id(repo_id, field) do
+    unique = System.unique_integer([:positive])
+    "#{repo_id}-#{field}-#{unique}"
   end
 
   defp parse_purpose_response(response) do
@@ -346,7 +510,7 @@ defmodule PortfolioManager.Detection.Agentic do
     end
   end
 
-  @valid_types_list ~w(library application port fork experiment template config docs unknown)
+  @valid_types_list ~w(library application service port fork experiment template config docs monorepo archive unknown)
 
   defp parse_type_response(response) do
     case extract_json(response) do

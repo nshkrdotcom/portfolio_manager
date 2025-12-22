@@ -8,7 +8,7 @@ defmodule PortfolioManager.Workflow.Parser do
 
   Searches for the workflow in:
   1. Built-in workflows (priv/workflows/)
-  2. User workflows (~/.portfolio/workflows/ or $PORTFOLIO_DIR/workflows/)
+  2. User workflows (~/portfolio/workflows/ or $PORTFOLIO_DIR/workflows/)
   """
   @spec load(String.t()) :: {:ok, map()} | {:error, term()}
   def load(name) do
@@ -40,6 +40,29 @@ defmodule PortfolioManager.Workflow.Parser do
     end
   end
 
+  @doc """
+  Normalizes a step definition map.
+  """
+  @spec normalize_step(map(), non_neg_integer() | nil) :: map()
+  def normalize_step(data, idx \\ nil) when is_map(data) do
+    id = Map.get(data, "id") || Map.get(data, :id) || default_step_id(idx)
+    name = Map.get(data, "name") || Map.get(data, :name) || id
+    type = Map.get(data, "type") || Map.get(data, :type)
+    action = Map.get(data, "action") || Map.get(data, :action)
+
+    %{
+      id: id,
+      name: name,
+      type: normalize_type(type),
+      action: action,
+      provider: Map.get(data, "provider") || Map.get(data, :provider),
+      inputs: Map.get(data, "inputs") || Map.get(data, :inputs) || %{},
+      outputs: Map.get(data, "outputs") || Map.get(data, :outputs) || %{},
+      on_failure: Map.get(data, "on_failure") || Map.get(data, :on_failure) || "stop",
+      timeout: Map.get(data, "timeout") || Map.get(data, :timeout) || 60_000
+    }
+  end
+
   # Private
 
   defp find_workflow_file(name) do
@@ -65,7 +88,7 @@ defmodule PortfolioManager.Workflow.Parser do
 
     user_dir =
       case System.get_env("PORTFOLIO_DIR") do
-        nil -> Path.join(System.user_home!(), ".portfolio/workflows")
+        nil -> Path.join(System.user_home!(), "portfolio/workflows")
         dir -> Path.join(dir, "workflows")
       end
 
@@ -73,74 +96,42 @@ defmodule PortfolioManager.Workflow.Parser do
   end
 
   defp parse_workflow(data, source_path) do
-    name = Map.get(data, "name") || (source_path && Path.basename(source_path, ".yml"))
+    workflow_data = Map.get(data, "workflow") || %{}
+
+    id =
+      Map.get(workflow_data, "id") ||
+        Map.get(workflow_data, "name") ||
+        (source_path && Path.basename(source_path, ".yml"))
 
     workflow = %{
-      name: name,
-      description: Map.get(data, "description", ""),
-      version: Map.get(data, "version", "1.0"),
-      vars: parse_vars(Map.get(data, "vars", %{})),
-      steps: parse_steps(Map.get(data, "steps", [])),
-      on_error: Map.get(data, "on_error", "stop"),
+      id: id,
+      name: Map.get(workflow_data, "name", id),
+      description: Map.get(workflow_data, "description", ""),
+      version: Map.get(workflow_data, "version", "1.0.0"),
+      schema_version: Map.get(data, "schema_version", 1),
+      target: Map.get(workflow_data, "target"),
+      target_filter: Map.get(workflow_data, "target_filter") || %{},
+      inputs: Map.get(workflow_data, "inputs") || %{},
+      outputs: Map.get(workflow_data, "outputs") || %{},
+      steps: parse_steps(Map.get(workflow_data, "steps", [])),
       source: source_path
     }
 
     validate_workflow(workflow)
   end
 
-  defp parse_vars(vars) when is_map(vars), do: vars
-  defp parse_vars(_), do: %{}
-
   defp parse_steps(steps) when is_list(steps) do
     steps
     |> Enum.with_index()
-    |> Enum.map(fn {step_data, idx} -> parse_step(step_data, idx) end)
+    |> Enum.map(fn {step_data, idx} -> normalize_step(step_data, idx) end)
   end
 
   defp parse_steps(_), do: []
 
-  defp parse_step(data, idx) when is_map(data) do
-    type = detect_step_type(data)
-
-    %{
-      name: Map.get(data, "name", "step_#{idx + 1}"),
-      type: type,
-      description: Map.get(data, "description"),
-      config: parse_step_config(type, data),
-      when: parse_condition(Map.get(data, "when")),
-      continue_on_error: Map.get(data, "continue_on_error", false),
-      timeout: Map.get(data, "timeout", 60_000)
-    }
-  end
-
-  defp detect_step_type(data) do
-    cond do
-      Map.has_key?(data, "git") -> :git
-      Map.has_key?(data, "shell") -> :shell
-      Map.has_key?(data, "agent") -> :agent
-      Map.has_key?(data, "file") -> :file
-      Map.has_key?(data, "context") -> :context
-      Map.has_key?(data, "update") -> :update
-      true -> :unknown
-    end
-  end
-
-  defp parse_step_config(:git, data), do: Map.get(data, "git")
-  defp parse_step_config(:shell, data), do: Map.get(data, "shell")
-  defp parse_step_config(:agent, data), do: Map.get(data, "agent")
-  defp parse_step_config(:file, data), do: Map.get(data, "file")
-  defp parse_step_config(:context, data), do: Map.get(data, "context")
-  defp parse_step_config(:update, data), do: Map.get(data, "update")
-  defp parse_step_config(_, _), do: %{}
-
-  defp parse_condition(nil), do: nil
-  defp parse_condition(condition) when is_binary(condition), do: condition
-  defp parse_condition(_), do: nil
-
   defp validate_workflow(workflow) do
     cond do
-      is_nil(workflow.name) or workflow.name == "" ->
-        {:error, :name_required}
+      is_nil(workflow.id) or workflow.id == "" ->
+        {:error, :id_required}
 
       Enum.empty?(workflow.steps) ->
         {:error, :steps_required}
@@ -149,4 +140,11 @@ defmodule PortfolioManager.Workflow.Parser do
         {:ok, workflow}
     end
   end
+
+  defp default_step_id(nil), do: "step_1"
+  defp default_step_id(idx), do: "step_#{idx + 1}"
+
+  defp normalize_type(nil), do: :unknown
+  defp normalize_type(type) when is_atom(type), do: type
+  defp normalize_type(type) when is_binary(type), do: String.to_atom(type)
 end

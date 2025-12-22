@@ -186,7 +186,16 @@ defmodule PortfolioManager.Domain.Context do
     repo_updates = Map.get(attrs, :repo) || Map.get(attrs, "repo") || %{}
 
     # Also check for top-level repo fields
-    top_level_repo_fields = [:type, :status, :language, :purpose, :tags, :priority, :port]
+    top_level_repo_fields = [
+      :type,
+      :status,
+      :language,
+      :framework,
+      :purpose,
+      :tags,
+      :priority,
+      :port
+    ]
 
     all_updates =
       Enum.reduce(top_level_repo_fields, repo_updates, fn field, acc ->

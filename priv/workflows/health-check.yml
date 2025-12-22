@@ -1,38 +1,38 @@
-name: health-check
-description: Run health checks on a repository
-version: "1.0"
+schema_version: 1
 
-steps:
-  - name: check_git_status
-    description: Check for uncommitted changes
-    git:
-      command: status
+workflow:
+  id: health-check
+  name: "Portfolio Health Check"
+  description: "Analyze health of all tracked repos"
+  version: 1.0.0
 
-  - name: check_readme
-    description: Verify README exists
-    file:
-      action: exists
-      path: "{{repo.path}}/README.md"
+  target: portfolio
 
-  - name: check_license
-    description: Check for license file
-    file:
-      action: exists
-      path: "{{repo.path}}/LICENSE"
+  inputs:
+    scope:
+      type: enum
+      values: [all, active, stale]
+      default: all
 
-  - name: check_recent_commits
-    description: Check for recent activity
-    shell:
-      command: git log -1 --format=%ci 2>/dev/null || echo "No commits"
-      capture: last_commit
+  steps:
+    - id: get_all_repos
+      type: context
+      action: get_portfolio_context
+      outputs:
+        repos: portfolio_context
 
-  - name: count_commits_30d
-    description: Count commits in last 30 days
-    shell:
-      command: git rev-list --count --since="30 days ago" HEAD 2>/dev/null || echo 0
-      capture: commits_30d
+    - id: generate_report
+      type: agent
+      action: generate
+      provider: claude
+      inputs:
+        prompt: |
+          Generate a portfolio health report.
 
-  - name: update_health_status
-    description: Record health check results
-    update:
-      note: "Health check completed. Last commit: {{last_commit}}. Commits (30d): {{commits_30d}}"
+          Repos: {{portfolio_context.repos}}
+          Relationships: {{portfolio_context.relationships}}
+      outputs:
+        output: report
+
+  outputs:
+    report: $report

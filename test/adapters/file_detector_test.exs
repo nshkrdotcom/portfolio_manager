@@ -108,9 +108,9 @@ defmodule PortfolioManager.Adapters.FileDetectorTest do
       on_exit(fn -> File.rm_rf!(path) end)
 
       assert {:ok, deps} = FileDetector.detect_dependencies(path)
-      assert "phoenix" in deps
-      assert "ecto" in deps
-      assert "jason" in deps
+      assert "phoenix" in deps.runtime
+      assert "ecto" in deps.runtime
+      assert "jason" in deps.runtime
     end
 
     test "detects Python dependencies" do
@@ -128,10 +128,10 @@ defmodule PortfolioManager.Adapters.FileDetectorTest do
       on_exit(fn -> File.rm_rf!(path) end)
 
       assert {:ok, deps} = FileDetector.detect_dependencies(path)
-      assert "flask" in deps
-      assert "requests" in deps
-      assert "numpy" in deps
-      assert "pandas" in deps
+      assert "flask" in deps.runtime
+      assert "requests" in deps.runtime
+      assert "numpy" in deps.runtime
+      assert "pandas" in deps.runtime
     end
 
     test "detects JavaScript dependencies" do
@@ -153,9 +153,9 @@ defmodule PortfolioManager.Adapters.FileDetectorTest do
       on_exit(fn -> File.rm_rf!(path) end)
 
       assert {:ok, deps} = FileDetector.detect_dependencies(path)
-      assert "react" in deps
-      assert "axios" in deps
-      assert "jest" in deps
+      assert "react" in deps.runtime
+      assert "axios" in deps.runtime
+      assert "jest" in deps.dev
     end
   end
 
@@ -183,7 +183,7 @@ defmodule PortfolioManager.Adapters.FileDetectorTest do
       assert {:ok, result} = FileDetector.detect(path)
       assert result.language == :elixir
       assert result.type == :library
-      assert "jason" in result.dependencies
+      assert "jason" in result.dependencies.runtime
       assert result.confidence > 0
     end
   end

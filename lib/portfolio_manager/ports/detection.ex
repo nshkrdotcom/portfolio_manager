@@ -10,7 +10,11 @@ defmodule PortfolioManager.Ports.Detection do
           language: atom() | nil,
           type: atom() | nil,
           framework: String.t() | nil,
-          dependencies: [String.t()],
+          dependencies: %{
+            runtime: [String.t()],
+            dev: [String.t()],
+            optional: [String.t()]
+          },
           confidence: float()
         }
 
@@ -32,7 +36,14 @@ defmodule PortfolioManager.Ports.Detection do
   @doc """
   Detects dependencies from manifest files.
   """
-  @callback detect_dependencies(path :: String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  @callback detect_dependencies(path :: String.t()) ::
+              {:ok,
+               %{
+                 runtime: [String.t()],
+                 dev: [String.t()],
+                 optional: [String.t()]
+               }}
+              | {:error, term()}
 
   @doc """
   Returns the configured detection adapter.

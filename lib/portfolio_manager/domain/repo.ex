@@ -50,6 +50,7 @@ defmodule PortfolioManager.Domain.Repo do
     :type,
     :status,
     :language,
+    :framework,
     :purpose,
     :priority,
     :port,
@@ -61,12 +62,15 @@ defmodule PortfolioManager.Domain.Repo do
   @valid_types [
     :library,
     :application,
+    :service,
     :port,
     :fork,
     :experiment,
     :template,
     :config,
     :docs,
+    :monorepo,
+    :archive,
     :unknown
   ]
   @valid_statuses [:active, :maintenance, :stale, :blocked, :archived, :unknown]
@@ -94,6 +98,7 @@ defmodule PortfolioManager.Domain.Repo do
       type: normalize_type(Map.get(attrs, :type) || Map.get(attrs, "type")),
       status: normalize_status(Map.get(attrs, :status) || Map.get(attrs, "status")),
       language: normalize_atom(Map.get(attrs, :language) || Map.get(attrs, "language")),
+      framework: Map.get(attrs, :framework) || Map.get(attrs, "framework"),
       purpose: Map.get(attrs, :purpose) || Map.get(attrs, "purpose"),
       tags: Map.get(attrs, :tags) || Map.get(attrs, "tags") || [],
       priority: normalize_priority(Map.get(attrs, :priority) || Map.get(attrs, "priority")),
@@ -129,6 +134,7 @@ defmodule PortfolioManager.Domain.Repo do
       |> maybe_update(:type, attrs, &normalize_type/1)
       |> maybe_update(:status, attrs, &normalize_status/1)
       |> maybe_update(:language, attrs, &normalize_atom/1)
+      |> maybe_update(:framework, attrs)
       |> maybe_update(:purpose, attrs)
       |> maybe_update(:tags, attrs)
       |> maybe_update(:priority, attrs, &normalize_priority/1)
@@ -174,6 +180,7 @@ defmodule PortfolioManager.Domain.Repo do
       "type" => to_string(repo.type),
       "status" => to_string(repo.status),
       "language" => repo.language && to_string(repo.language),
+      "framework" => repo.framework,
       "purpose" => repo.purpose,
       "tags" => repo.tags,
       "priority" => repo.priority && to_string(repo.priority),

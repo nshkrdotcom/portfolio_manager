@@ -28,6 +28,8 @@ defmodule Mix.Tasks.Portfolio.Config do
 
   use Mix.Task
 
+  alias PortfolioManager.CLI.Exit
+
   @impl Mix.Task
   def run(args) do
     {opts, args, _} =
@@ -44,14 +46,30 @@ defmodule Mix.Tasks.Portfolio.Config do
       show_help()
     else
       case args do
-        ["show"] -> show_config(opts)
-        ["get", key] -> get_config(key, opts)
-        ["set", key, value] -> set_config(key, value, opts)
-        ["list-dirs"] -> list_dirs(opts)
-        ["add-dir", path] -> add_dir(path, opts)
-        ["remove-dir", path] -> remove_dir(path, opts)
-        [] -> show_config(opts)
-        _ -> show_help()
+        ["show"] ->
+          show_config(opts)
+
+        ["get", key] ->
+          get_config(key, opts)
+
+        ["set", key, value] ->
+          set_config(key, value, opts)
+
+        ["list-dirs"] ->
+          list_dirs(opts)
+
+        ["add-dir", path] ->
+          add_dir(path, opts)
+
+        ["remove-dir", path] ->
+          remove_dir(path, opts)
+
+        [] ->
+          show_config(opts)
+
+        _ ->
+          show_help()
+          Exit.halt(:invalid_args)
       end
     end
   end
@@ -75,6 +93,7 @@ defmodule Mix.Tasks.Portfolio.Config do
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found at #{config_path}")
+        Exit.halt(:config)
     end
   end
 
@@ -94,6 +113,7 @@ defmodule Mix.Tasks.Portfolio.Config do
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
+        Exit.halt(:config)
     end
   end
 
@@ -119,6 +139,7 @@ defmodule Mix.Tasks.Portfolio.Config do
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
+        Exit.halt(:config)
     end
   end
 
@@ -146,6 +167,7 @@ defmodule Mix.Tasks.Portfolio.Config do
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
+        Exit.halt(:config)
     end
   end
 
@@ -176,6 +198,7 @@ defmodule Mix.Tasks.Portfolio.Config do
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
+        Exit.halt(:config)
     end
   end
 
@@ -340,6 +363,6 @@ defmodule Mix.Tasks.Portfolio.Config do
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

@@ -364,7 +364,7 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
       "version" => "1.0",
       "scan" => %{
         "directories" => [],
-        "exclude" => ["**/node_modules", "**/.git", "**/vendor"]
+        "exclude_patterns" => ["**/node_modules/**", "**/.git/**", "**/deps/**", "**/_build/**"]
       },
       "sync" => %{
         "auto_commit" => false

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `mix portfolio.remove` - Remove a repository from tracking
   - `mix portfolio.edit` - Edit repository metadata (type, status, tags, notes)
   - `mix portfolio.search` - Search across repositories
+  - `mix portfolio.graph` - Visualize relationships
+  - `mix portfolio.review` - Review pending agentic detections
   - `mix portfolio.status` - Show portfolio status
   - `mix portfolio.sync` - Sync portfolio state and refresh repo info
   - `mix portfolio.config` - Manage portfolio configuration
@@ -49,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Relationship discovery
   - Status assessment
   - Full analysis combining all detection methods
+  - Review queue persisted to `.portfolio/reviews/pending.yml`
 
 - **SQLite Cache** (optional): Fast indexed queries for large portfolios
   - Requires optional `exqlite` dependency
@@ -67,7 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All portfolio operations available interactively
 
 - **Enhanced Detection**: Improved repository detection
-  - Dependency parsing for Elixir, Python, JavaScript, Rust, and Go
+  - Dependency parsing for Elixir, Python (including setup.py), JavaScript, Rust, and Go
+  - Dependency buckets for runtime/dev/optional, including JS peer deps
   - Framework detection (Phoenix, Nerves, FastAPI, Django, React, Next.js, etc.)
   - Git commit statistics (commit count, contributors, first/last commit dates)
 
@@ -101,7 +105,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Notes now persist to separate markdown files instead of YAML
 - Decisions persist to individual markdown files in ADR format
-- Enhanced Python dependency detection to support pyproject.toml
+- Default portfolio path now `~/portfolio` (override with `PORTFOLIO_DIR`)
+- Workflow YAML schema now uses `schema_version` and `workflow` root keys
+- Scan defaults to config directories and exclude patterns; agentic defaults to config
+- Sync supports `--full`, `--computed-only`, and `--check-remotes`
 
 ### Fixed
 

@@ -25,6 +25,8 @@ defmodule Mix.Tasks.Portfolio.Ask do
 
   use Mix.Task
 
+  alias PortfolioManager.CLI.Exit
+
   @impl Mix.Task
   def run(args) do
     {opts, query_parts, _} =
@@ -45,6 +47,7 @@ defmodule Mix.Tasks.Portfolio.Ask do
 
       if question == "" do
         Mix.shell().error("Missing question. Usage: mix portfolio.ask <question>")
+        Exit.halt(:invalid_args)
       else
         do_ask(question, opts)
       end
@@ -74,10 +77,12 @@ defmodule Mix.Tasks.Portfolio.Ask do
 
           {:error, reason} ->
             Mix.shell().error("Query failed: #{format_error(reason)}")
+            Exit.halt(:agent)
         end
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
+        Exit.halt(:config)
     end
   end
 
@@ -132,6 +137,6 @@ defmodule Mix.Tasks.Portfolio.Ask do
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

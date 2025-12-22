@@ -68,7 +68,11 @@ defmodule PortfolioManager do
   """
   @spec init() :: {:ok, portfolio()} | {:error, term()}
   def init do
-    path = Application.get_env(:portfolio_manager, :portfolio_path, "../portfolio")
+    path =
+      System.get_env("PORTFOLIO_DIR") ||
+        Application.get_env(:portfolio_manager, :portfolio_path) ||
+        Path.join(System.user_home!(), "portfolio")
+
     init(path)
   end
 
@@ -86,7 +90,12 @@ defmodule PortfolioManager do
   """
   @spec scan(portfolio(), [String.t()]) :: {:ok, [Repo.t()]} | {:error, term()}
   def scan(portfolio, directories) when is_list(directories) do
-    Portfolio.scan(portfolio, directories)
+    scan(portfolio, directories, [])
+  end
+
+  @spec scan(portfolio(), [String.t()], keyword()) :: {:ok, [Repo.t()]} | {:error, term()}
+  def scan(portfolio, directories, opts) when is_list(directories) and is_list(opts) do
+    Portfolio.scan(portfolio, directories, opts)
   end
 
   @doc """
@@ -99,7 +108,12 @@ defmodule PortfolioManager do
   """
   @spec add(portfolio(), String.t()) :: {:ok, Repo.t()} | {:error, term()}
   def add(portfolio, path) do
-    Portfolio.add_repo(portfolio, path)
+    add(portfolio, path, [])
+  end
+
+  @spec add(portfolio(), String.t(), keyword()) :: {:ok, Repo.t()} | {:error, term()}
+  def add(portfolio, path, opts) when is_list(opts) do
+    Portfolio.add_repo(portfolio, path, opts)
   end
 
   @doc """
@@ -253,7 +267,14 @@ defmodule PortfolioManager do
   """
   @spec update_context(portfolio(), String.t(), map()) :: {:ok, Context.t()} | {:error, term()}
   def update_context(portfolio, repo_id, updates) do
-    Portfolio.update_context(portfolio, repo_id, updates)
+    case Portfolio.update_context(portfolio, repo_id, updates) do
+      {:ok, _} = ok ->
+        maybe_refresh_cache(portfolio)
+        ok
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   @doc """
@@ -329,7 +350,14 @@ defmodule PortfolioManager do
   """
   @spec sync(portfolio()) :: :ok | {:error, term()}
   def sync(portfolio) do
-    Portfolio.save(portfolio)
+    case Portfolio.save(portfolio) do
+      :ok ->
+        maybe_refresh_cache(portfolio)
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   @doc """
@@ -429,6 +457,21 @@ defmodule PortfolioManager do
 
       {:error, _} ->
         []
+    end
+  end
+
+  defp maybe_refresh_cache(portfolio) do
+    if PortfolioManager.Cache.SQLite.available?() do
+      index_path = PortfolioManager.Cache.SQLite.index_path(portfolio)
+
+      if File.exists?(index_path) do
+        _ = PortfolioManager.Cache.SQLite.build_index(portfolio)
+        :ok
+      else
+        :ok
+      end
+    else
+      :ok
     end
   end
 

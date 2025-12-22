@@ -13,7 +13,10 @@ defmodule PortfolioManager.Workflow.Step do
     AgentStep,
     FileStep,
     ContextStep,
-    UpdateStep
+    UpdateStep,
+    ControlStep,
+    WorkflowStep,
+    DetectionStep
   }
 
   @type step :: map()
@@ -33,7 +36,13 @@ defmodule PortfolioManager.Workflow.Step do
     end
   end
 
+  def execute(%{type: :control} = step, context, opts) do
+    ControlStep.execute(step, context, opts)
+  end
+
   def execute(step, context, opts) do
+    resolved_inputs = Context.resolve_inputs(context, Map.get(step, :inputs) || %{})
+    step = Map.put(step, :inputs, resolved_inputs)
     do_execute(step, context, opts)
   end
 
@@ -59,6 +68,14 @@ defmodule PortfolioManager.Workflow.Step do
 
   defp do_execute(%{type: :update} = step, context, opts) do
     UpdateStep.execute(step, context, opts)
+  end
+
+  defp do_execute(%{type: :workflow} = step, context, opts) do
+    WorkflowStep.execute(step, context, opts)
+  end
+
+  defp do_execute(%{type: :detection} = step, context, opts) do
+    DetectionStep.execute(step, context, opts)
   end
 
   defp do_execute(%{type: type}, _context, _opts) do

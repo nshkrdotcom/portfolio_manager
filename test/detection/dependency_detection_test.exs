@@ -53,10 +53,10 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "mix.exs"), mix_content)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "phoenix" in deps
-      assert "ecto" in deps
-      assert "jason" in deps
-      assert "plug_cowboy" in deps
+      assert "phoenix" in deps.runtime
+      assert "ecto" in deps.runtime
+      assert "jason" in deps.runtime
+      assert "plug_cowboy" in deps.runtime
     end
 
     test "handles mix.exs with inline deps", %{tmp_dir: tmp_dir} do
@@ -77,8 +77,8 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "mix.exs"), mix_content)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "oban" in deps
-      assert "telemetry" in deps
+      assert "oban" in deps.runtime
+      assert "telemetry" in deps.runtime
     end
   end
 
@@ -96,11 +96,11 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "requirements.txt"), requirements)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "django" in deps
-      assert "requests" in deps
-      assert "numpy" in deps
-      assert "pandas" in deps
-      assert "flask" in deps
+      assert "django" in deps.runtime
+      assert "requests" in deps.runtime
+      assert "numpy" in deps.runtime
+      assert "pandas" in deps.runtime
+      assert "flask" in deps.runtime
     end
 
     test "detects dependencies from pyproject.toml", %{tmp_dir: tmp_dir} do
@@ -121,9 +121,38 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "pyproject.toml"), pyproject)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "fastapi" in deps
-      assert "uvicorn" in deps
-      assert "pydantic" in deps
+      assert "fastapi" in deps.runtime
+      assert "uvicorn" in deps.runtime
+      assert "pydantic" in deps.runtime
+      assert "pytest" in deps.dev
+      assert "black" in deps.dev
+    end
+
+    test "detects dependencies from setup.py", %{tmp_dir: tmp_dir} do
+      setup_py = """
+      from setuptools import setup
+
+      setup(
+        name="my-package",
+        install_requires=[
+          "requests>=2.28",
+          "numpy",
+        ],
+        extras_require={
+          "dev": ["pytest", "black"],
+          "docs": ["sphinx"],
+        },
+      )
+      """
+
+      File.write!(Path.join(tmp_dir, "setup.py"), setup_py)
+      {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
+
+      assert "requests" in deps.runtime
+      assert "numpy" in deps.runtime
+      assert "pytest" in deps.dev
+      assert "black" in deps.dev
+      assert "sphinx" in deps.optional
     end
   end
 
@@ -140,6 +169,9 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
         "devDependencies": {
           "jest": "^29.0.0",
           "typescript": "^5.0.0"
+        },
+        "peerDependencies": {
+          "react-dom": "^18.0.0"
         }
       }
       """
@@ -147,10 +179,11 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "package.json"), pkg_json)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "react" in deps
-      assert "axios" in deps
-      assert "jest" in deps
-      assert "typescript" in deps
+      assert "react" in deps.runtime
+      assert "axios" in deps.runtime
+      assert "jest" in deps.dev
+      assert "typescript" in deps.dev
+      assert "react-dom" in deps.optional
     end
 
     test "handles package.json with no devDependencies", %{tmp_dir: tmp_dir} do
@@ -166,7 +199,7 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "package.json"), pkg_json)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "lodash" in deps
+      assert "lodash" in deps.runtime
     end
   end
 
@@ -190,9 +223,10 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "Cargo.toml"), cargo_toml)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "tokio" in deps
-      assert "serde" in deps
-      assert "reqwest" in deps
+      assert "tokio" in deps.runtime
+      assert "serde" in deps.runtime
+      assert "reqwest" in deps.runtime
+      assert "mockall" in deps.dev
     end
   end
 
@@ -217,8 +251,8 @@ defmodule PortfolioManager.Detection.DependencyDetectionTest do
       File.write!(Path.join(tmp_dir, "go.mod"), go_mod)
       {:ok, deps} = FileDetector.detect_dependencies(tmp_dir)
 
-      assert "github.com/gin-gonic/gin" in deps or "gin" in deps
-      assert "github.com/spf13/cobra" in deps or "cobra" in deps
+      assert "github.com/gin-gonic/gin" in deps.runtime or "gin" in deps.runtime
+      assert "github.com/spf13/cobra" in deps.runtime or "cobra" in deps.runtime
     end
   end
 end

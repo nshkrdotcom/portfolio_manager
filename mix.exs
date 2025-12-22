@@ -31,7 +31,9 @@ defmodule PortfolioManager.MixProject do
 
       # Dialyzer
       dialyzer: [
-        plt_add_apps: [:mix]
+        plt_add_apps: [:mix],
+        plt_local_path: "priv/plts/project.plt",
+        plt_core_path: "priv/plts/core.plt"
       ]
     ]
   end
@@ -55,7 +57,7 @@ defmodule PortfolioManager.MixProject do
       {:jason, "~> 1.4"},
 
       # RAG (Retrieval-Augmented Generation)
-      {:rag, github: "nshkrdotcom/rag", branch: "feature/multi-llm-routing-agent-framework"},
+      {:rag, "~> 0.3.3", hex: :rag_ex},
 
       # File watching (optional)
       {:file_system, "~> 1.0", optional: true},
@@ -83,7 +85,7 @@ defmodule PortfolioManager.MixProject do
       links: %{
         "GitHub" => @source_url
       },
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib assets priv .formatter.exs mix.exs README.md LICENSE guides)
     ]
   end
 
@@ -92,7 +94,38 @@ defmodule PortfolioManager.MixProject do
       main: "readme",
       source_url: @source_url,
       source_ref: "v#{@version}",
-      extras: ["README.md", "LICENSE"],
+      assets: %{"assets" => "assets"},
+      logo: "assets/portfolio_manager.svg",
+      extras: [
+        "README.md",
+        "LICENSE",
+        "guides/01_overview.md",
+        "guides/02_installation_and_init.md",
+        "guides/03_configuration_and_structure.md",
+        "guides/04_cli_reference.md",
+        "guides/05_detection_and_metadata.md",
+        "guides/06_agentic_detection_and_review.md",
+        "guides/07_views_and_graph.md",
+        "guides/08_workflows.md",
+        "guides/09_search_and_cache.md",
+        "guides/10_library_api.md",
+        "guides/11_operations_and_migration.md"
+      ],
+      groups_for_extras: [
+        Guides: [
+          "guides/01_overview.md",
+          "guides/02_installation_and_init.md",
+          "guides/03_configuration_and_structure.md",
+          "guides/04_cli_reference.md",
+          "guides/05_detection_and_metadata.md",
+          "guides/06_agentic_detection_and_review.md",
+          "guides/07_views_and_graph.md",
+          "guides/08_workflows.md",
+          "guides/09_search_and_cache.md",
+          "guides/10_library_api.md",
+          "guides/11_operations_and_migration.md"
+        ]
+      ],
       groups_for_modules: [
         Core: [
           PortfolioManager,

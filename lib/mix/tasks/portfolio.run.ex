@@ -40,6 +40,7 @@ defmodule Mix.Tasks.Portfolio.Run do
   use Mix.Task
 
   alias PortfolioManager.Workflow.Engine
+  alias PortfolioManager.CLI.Exit
 
   @impl Mix.Task
   def run(args) do
@@ -58,10 +59,18 @@ defmodule Mix.Tasks.Portfolio.Run do
       )
 
     cond do
-      opts[:help] -> show_help()
-      opts[:list] -> list_workflows(opts)
-      length(args) >= 1 -> run_workflow(List.first(args), opts)
-      true -> show_help()
+      opts[:help] ->
+        show_help()
+
+      opts[:list] ->
+        list_workflows(opts)
+
+      length(args) >= 1 ->
+        run_workflow(List.first(args), opts)
+
+      true ->
+        show_help()
+        Exit.halt(:invalid_args)
     end
   end
 
@@ -75,7 +84,8 @@ defmodule Mix.Tasks.Portfolio.Run do
         Mix.shell().info("No workflows found.")
         Mix.shell().info("")
         Mix.shell().info("Create workflows in:")
-        Mix.shell().info("  * ~/.portfolio/workflows/*.yml")
+        Mix.shell().info("  * ~/portfolio/workflows/*.yml")
+        Mix.shell().info("  * repos/{id}/workflows/*.yml")
       else
         Mix.shell().info("""
         #{IO.ANSI.cyan()}Available Workflows#{IO.ANSI.reset()}
@@ -116,18 +126,14 @@ defmodule Mix.Tasks.Portfolio.Run do
           Mix.shell().info("")
         end
 
+        inputs = if opts[:repo], do: %{"repo_id" => opts[:repo]}, else: %{}
+
         engine_opts = [
           portfolio: portfolio,
+          inputs: inputs,
           dry_run: opts[:dry_run] || false,
           verbose: opts[:verbose] || false
         ]
-
-        engine_opts =
-          if opts[:repo] do
-            Keyword.put(engine_opts, :repo_id, opts[:repo])
-          else
-            engine_opts
-          end
 
         case Engine.run(workflow_name, engine_opts) do
           {:ok, result} ->
@@ -141,9 +147,11 @@ defmodule Mix.Tasks.Portfolio.Run do
             Mix.shell().error("Workflow '#{workflow_name}' not found")
             Mix.shell().info("")
             Mix.shell().info("Run `mix portfolio.run --list` to see available workflows")
+            Exit.halt(:invalid_args)
 
           {:error, reason} ->
             Mix.shell().error("Workflow failed: #{inspect(reason)}")
+            Exit.halt(:error)
         end
 
       {:error, :not_initialized} ->
@@ -151,6 +159,8 @@ defmodule Mix.Tasks.Portfolio.Run do
         Portfolio not found at #{portfolio_path}
         Run `mix portfolio.init` first.
         """)
+
+        Exit.halt(:config)
     end
   end
 
@@ -220,6 +230,6 @@ defmodule Mix.Tasks.Portfolio.Run do
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

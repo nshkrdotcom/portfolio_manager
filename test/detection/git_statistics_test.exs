@@ -60,6 +60,15 @@ defmodule PortfolioManager.Detection.GitStatisticsTest do
     end
   end
 
+  describe "contributors/1" do
+    test "returns unique contributor emails", %{tmp_dir: tmp_dir} do
+      {:ok, emails} = LocalGit.contributors(tmp_dir)
+
+      assert is_list(emails)
+      assert "test@example.com" in emails
+    end
+  end
+
   describe "first_commit_date/1" do
     test "returns date of first commit", %{tmp_dir: tmp_dir} do
       {:ok, date} = LocalGit.first_commit_date(tmp_dir)

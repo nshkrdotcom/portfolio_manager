@@ -115,6 +115,32 @@ defmodule PortfolioManager.Adapters.LocalGit do
   end
 
   @doc """
+  Gets the last commit info (sha, date, message).
+  """
+  @spec last_commit_info(String.t()) :: {:ok, map() | nil} | {:error, term()}
+  def last_commit_info(path) do
+    case run_git(path, ["log", "-1", "--format=%H|%aI|%s"]) do
+      {:ok, output} ->
+        case String.trim(output) |> String.split("|", parts: 3) do
+          [sha, date_str, message] ->
+            date =
+              case DateTime.from_iso8601(date_str) do
+                {:ok, dt, _} -> dt
+                {:error, _} -> nil
+              end
+
+            {:ok, %{sha: sha, date: date, message: message}}
+
+          _ ->
+            {:ok, nil}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Discovers git repositories in a directory.
   """
   @spec discover_repos(String.t(), keyword()) :: [String.t()]
@@ -142,22 +168,50 @@ defmodule PortfolioManager.Adapters.LocalGit do
   end
 
   @doc """
+  Fetches all remotes for a repository.
+  """
+  @spec fetch_all(String.t()) :: :ok | {:error, term()}
+  def fetch_all(path) do
+    case run_git(path, ["fetch", "--all", "--prune"]) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets the last commit info from the upstream branch.
+  """
+  @spec last_remote_commit_info(String.t()) :: {:ok, map() | nil} | {:error, term()}
+  def last_remote_commit_info(path) do
+    case run_git(path, ["log", "-1", "--format=%H|%aI|%s", "@{u}"]) do
+      {:ok, output} ->
+        case String.trim(output) |> String.split("|", parts: 3) do
+          [sha, date_str, message] ->
+            date =
+              case DateTime.from_iso8601(date_str) do
+                {:ok, dt, _} -> dt
+                {:error, _} -> nil
+              end
+
+            {:ok, %{sha: sha, date: date, message: message}}
+
+          _ ->
+            {:ok, nil}
+        end
+
+      {:error, _} ->
+        {:ok, nil}
+    end
+  end
+
+  @doc """
   Gets the count of unique contributors.
   """
   @spec contributor_count(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def contributor_count(path) do
-    case run_git(path, ["shortlog", "-sne", "HEAD"]) do
-      {:ok, output} ->
-        count =
-          output
-          |> String.split("\n")
-          |> Enum.reject(&(&1 == ""))
-          |> length()
-
-        {:ok, count}
-
-      {:error, reason} ->
-        {:error, reason}
+    case contributors(path) do
+      {:ok, emails} -> {:ok, length(emails)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -176,6 +230,26 @@ defmodule PortfolioManager.Adapters.LocalGit do
           |> Enum.reject(&is_nil/1)
 
         {:ok, contributors}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Gets a list of contributor emails.
+  """
+  @spec contributors(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def contributors(path) do
+    case get_contributors(path) do
+      {:ok, contributors} ->
+        emails =
+          contributors
+          |> Enum.map(&Map.get(&1, :email))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq()
+
+        {:ok, emails}
 
       {:error, reason} ->
         {:error, reason}
@@ -279,8 +353,12 @@ defmodule PortfolioManager.Adapters.LocalGit do
 
   defp matches_pattern?(entry, pattern) do
     # Simple glob matching
-    pattern = String.replace(pattern, "**/", "")
-    pattern = String.replace(pattern, "*", ".*")
+    pattern =
+      pattern
+      |> String.replace("**/", "")
+      |> String.replace("/**", "")
+      |> String.replace("/", "")
+      |> String.replace("*", ".*")
 
     case Regex.compile("^#{pattern}$") do
       {:ok, regex} -> Regex.match?(regex, entry)

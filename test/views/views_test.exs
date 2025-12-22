@@ -100,4 +100,71 @@ defmodule PortfolioManager.ViewsTest do
       assert String.contains?(content, "results:")
     end
   end
+
+  describe "stale and port views" do
+    test "stale view includes active repos with zero commits", %{
+      tmp_dir: tmp_dir,
+      portfolio: portfolio
+    } do
+      repo_dir = Path.join([tmp_dir, "stale_repo"])
+
+      PortfolioManager.TestHelpers.create_test_repo(repo_dir,
+        name: "stale_repo",
+        language: :elixir
+      )
+
+      {:ok, repo} = PortfolioManager.add(portfolio, repo_dir)
+
+      {:ok, _} =
+        PortfolioManager.update_context(portfolio, repo.id, %{
+          status: :active,
+          computed: %{"commit_count_30d" => 0}
+        })
+
+      :ok = Views.generate_stale_repos(portfolio, PortfolioManager.list_repos(portfolio))
+
+      views_dir = Path.join(tmp_dir, "views")
+      {:ok, data} = YamlElixir.read_from_file(Path.join(views_dir, "stale-repos.yml"))
+
+      results = Map.get(data, "results", [])
+      assert Enum.any?(results, fn item -> item["id"] == repo.id end)
+    end
+
+    test "port-status view includes upstream metadata", %{
+      tmp_dir: tmp_dir,
+      portfolio: portfolio
+    } do
+      repo_dir = Path.join([tmp_dir, "port_repo"])
+
+      PortfolioManager.TestHelpers.create_test_repo(repo_dir,
+        name: "port_repo",
+        language: :elixir
+      )
+
+      {:ok, repo} = PortfolioManager.add(portfolio, repo_dir)
+
+      {:ok, _} =
+        PortfolioManager.update_context(portfolio, repo.id, %{
+          type: :port,
+          port: %{
+            "upstream_url" => "https://github.com/example/upstream",
+            "upstream_version" => "v2.0.0",
+            "synced_version" => "v1.0.0",
+            "commits_behind" => 5
+          }
+        })
+
+      :ok = Views.generate_port_status(portfolio, PortfolioManager.list_repos(portfolio))
+
+      views_dir = Path.join(tmp_dir, "views")
+      {:ok, data} = YamlElixir.read_from_file(Path.join(views_dir, "port-status.yml"))
+
+      results = Map.get(data, "results", [])
+
+      assert Enum.any?(results, fn item ->
+               item["id"] == repo.id and item["upstream"] == "https://github.com/example/upstream" and
+                 item["status"] == "needs_sync"
+             end)
+    end
+  end
 end

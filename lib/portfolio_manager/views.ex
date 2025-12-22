@@ -138,20 +138,36 @@ defmodule PortfolioManager.Views do
     stale_repos =
       repos
       |> Enum.filter(fn repo ->
-        case LocalGit.days_since_last_commit(repo.path) do
-          {:ok, days} -> days >= stale_days
-          _ -> false
+        computed = load_computed(portfolio, repo)
+        commit_count = get_computed_value(computed, "commit_count_30d")
+        last_commit_date = get_last_commit_date(repo, computed)
+        days_since_commit = days_since(last_commit_date)
+
+        cond do
+          repo.status == :stale ->
+            true
+
+          repo.status == :active and commit_count == 0 ->
+            true
+
+          is_nil(commit_count) and is_integer(days_since_commit) ->
+            days_since_commit >= stale_days
+
+          true ->
+            false
         end
       end)
       |> Enum.map(fn repo ->
-        {:ok, days} = LocalGit.days_since_last_commit(repo.path)
-        {:ok, last_commit} = LocalGit.get_last_commit_date(repo.path)
+        computed = load_computed(portfolio, repo)
+        last_commit_date = get_last_commit_date(repo, computed)
+        days = days_since(last_commit_date) || 0
+        notes = note_snippet(portfolio, repo.id)
 
-        %{
+        base = %{
           "id" => repo.id,
           "status" => to_string(repo.status),
           "days_since_commit" => days,
-          "last_commit" => last_commit && DateTime.to_iso8601(last_commit),
+          "last_commit" => last_commit_date && DateTime.to_iso8601(last_commit_date),
           "recommendation" =>
             cond do
               days >= 180 -> "Consider archiving"
@@ -159,12 +175,18 @@ defmodule PortfolioManager.Views do
               true -> "Review activity"
             end
         }
+
+        if notes do
+          Map.put(base, "notes", notes)
+        else
+          base
+        end
       end)
       |> Enum.sort_by(& &1["days_since_commit"], :desc)
 
     data = %{
       "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
-      "query" => "days_since_commit >= #{stale_days}",
+      "query" => "status == stale OR (status == active AND computed.commit_count_30d == 0)",
       "threshold_days" => stale_days,
       "results" => stale_repos,
       "summary" => %{
@@ -187,21 +209,77 @@ defmodule PortfolioManager.Views do
       |> Enum.map(fn repo ->
         port_info = repo.port || %{}
 
+        upstream =
+          Map.get(port_info, :upstream_url) ||
+            Map.get(port_info, "upstream_url") ||
+            Map.get(port_info, :upstream) ||
+            Map.get(port_info, "upstream") ||
+            "unknown"
+
+        upstream_version =
+          Map.get(port_info, :upstream_version) ||
+            Map.get(port_info, "upstream_version") ||
+            get_in(port_info, [:sync, :last_tag]) ||
+            get_in(port_info, ["sync", "last_tag"]) ||
+            "unknown"
+
+        synced_version =
+          Map.get(port_info, :synced_version) ||
+            Map.get(port_info, "synced_version") ||
+            get_in(port_info, [:sync, :last_tag]) ||
+            get_in(port_info, ["sync", "last_tag"]) ||
+            "unknown"
+
+        commits_behind =
+          get_in(port_info, [:upstream_status, :commits_behind]) ||
+            get_in(port_info, ["upstream_status", "commits_behind"]) ||
+            Map.get(port_info, :commits_behind) ||
+            Map.get(port_info, "commits_behind")
+
+        commits_behind = normalize_integer(commits_behind)
+
+        status =
+          cond do
+            is_integer(commits_behind) and commits_behind > 0 -> "needs_sync"
+            is_integer(commits_behind) and commits_behind == 0 -> "up_to_date"
+            true -> "unknown"
+          end
+
         %{
           "id" => repo.id,
-          "upstream" => Map.get(port_info, :upstream, "unknown"),
-          "synced_version" => Map.get(port_info, :synced_version, "unknown"),
-          "language" => to_string(repo.language),
-          "status" => to_string(repo.status)
+          "upstream" => to_string(upstream),
+          "upstream_version" => to_string(upstream_version),
+          "synced_version" => to_string(synced_version),
+          "commits_behind" => commits_behind,
+          "status" => status,
+          "affected_modules" =>
+            get_in(port_info, [:upstream_status, :affected_modules]) ||
+              get_in(port_info, ["upstream_status", "affected_modules"]) ||
+              get_in(port_info, [:sync, :affected_modules]) ||
+              get_in(port_info, ["sync", "affected_modules"])
         }
       end)
+
+    summary_counts =
+      port_repos
+      |> Enum.group_by(& &1["status"])
+      |> Map.new(fn {k, v} -> {k, length(v)} end)
+
+    total_commits_behind =
+      port_repos
+      |> Enum.map(& &1["commits_behind"])
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
 
     data = %{
       "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "query" => "type == port",
       "results" => port_repos,
       "summary" => %{
-        "total_ports" => length(port_repos)
+        "total_ports" => length(port_repos),
+        "up_to_date" => Map.get(summary_counts, "up_to_date", 0),
+        "needs_sync" => Map.get(summary_counts, "needs_sync", 0),
+        "total_commits_behind" => total_commits_behind
       }
     }
 
@@ -305,5 +383,94 @@ defmodule PortfolioManager.Views do
     String.starts_with?(s, [" ", "-", ":", "#", "!", "?", "@", "&", "*", "`", "'", "\""]) or
       String.contains?(s, [": ", " #"]) or
       s in ["true", "false", "null", "yes", "no", "on", "off"]
+  end
+
+  defp load_computed(portfolio, repo) do
+    case PortfolioManager.get_context(portfolio, repo.id) do
+      {:ok, context} -> context.computed
+      _ -> %{}
+    end
+  end
+
+  defp get_computed_value(computed, key) do
+    Map.get(computed, key) || Map.get(computed, String.to_atom(key))
+  end
+
+  defp get_last_commit_date(repo, computed) do
+    case get_computed_value(computed, "last_commit") do
+      %{"date" => date} -> parse_datetime(date)
+      %{date: date} -> parse_datetime(date)
+      date when is_binary(date) -> parse_datetime(date)
+      _ -> fallback_last_commit_date(repo)
+    end
+  end
+
+  defp fallback_last_commit_date(repo) do
+    case repo.path && LocalGit.get_last_commit_date(repo.path) do
+      {:ok, %DateTime{} = date} -> date
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = date), do: date
+
+  defp parse_datetime(date) when is_binary(date) do
+    case DateTime.from_iso8601(date) do
+      {:ok, dt, _} -> dt
+      {:error, _} -> nil
+    end
+  end
+
+  defp parse_datetime(_), do: nil
+
+  defp days_since(nil), do: nil
+
+  defp days_since(%DateTime{} = date) do
+    now = DateTime.utc_now()
+    diff_seconds = DateTime.diff(now, date)
+    div(diff_seconds, 86_400)
+  end
+
+  defp normalize_integer(nil), do: nil
+  defp normalize_integer(value) when is_integer(value), do: value
+
+  defp normalize_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      _ -> nil
+    end
+  end
+
+  defp normalize_integer(_), do: nil
+
+  defp note_snippet(portfolio, repo_id) do
+    case PortfolioManager.get_context(portfolio, repo_id) do
+      {:ok, context} ->
+        context.notes
+        |> extract_first_line()
+        |> truncate_notes()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp extract_first_line(nil), do: nil
+
+  defp extract_first_line(notes) when is_binary(notes) do
+    notes
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.find(&(&1 != ""))
+  end
+
+  defp truncate_notes(nil), do: nil
+
+  defp truncate_notes(notes) do
+    if String.length(notes) > 120 do
+      String.slice(notes, 0, 117) <> "..."
+    else
+      notes
+    end
   end
 end

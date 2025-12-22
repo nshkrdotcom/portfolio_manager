@@ -1,35 +1,61 @@
-name: port-check
-description: Check port status against upstream repository
-version: "1.0"
+schema_version: 1
 
-vars:
-  stale_days: 30
+workflow:
+  id: port-check
+  name: "Port Check"
+  description: "Check port status against upstream"
+  version: 1.0.0
 
-steps:
-  - name: check_repo_type
-    description: Verify this is a port repository
-    context:
-      set:
-        is_port: "{{repo.type}}"
+  target: repo
+  target_filter:
+    type: port
 
-  - name: get_git_status
-    description: Check for local changes
-    git:
-      command: status
+  inputs:
+    repo_id:
+      type: string
+      required: true
 
-  - name: fetch_upstream
-    description: Fetch latest from origin
-    git:
-      command: fetch
+  steps:
+    - id: get_context
+      type: context
+      action: get_repo_context
+      inputs:
+        repo_id: $inputs.repo_id
+      outputs:
+        context: repo_context
 
-  - name: check_behind
-    description: Check if behind upstream
-    shell:
-      command: git rev-list --count HEAD..origin/main 2>/dev/null || echo 0
-      capture: commits_behind
+    - id: validate_port
+      type: control
+      action: condition
+      inputs:
+        condition: "$repo_context.type == \"port\""
+        on_false: abort
+        abort_message: "Repo is not a port"
 
-  - name: report_status
-    description: Update repo status based on findings
-    update:
-      note: "Port check completed. Commits behind: {{commits_behind}}"
-    when: "commits_behind != 0"
+    - id: fetch_upstream
+      type: git
+      action: fetch
+      inputs:
+        url: $repo_context.port.upstream_url
+
+    - id: compare
+      type: git
+      action: diff
+      inputs:
+        base: $repo_context.port.sync.last_commit
+        head: HEAD
+      outputs:
+        diff: diff_info
+
+    - id: update_status
+      type: update
+      action: update_context
+      inputs:
+        repo_id: $inputs.repo_id
+        updates:
+          computed:
+            commit_count_30d: $diff_info.commit_count
+
+  outputs:
+    report:
+      commits_behind: $diff_info.commit_count

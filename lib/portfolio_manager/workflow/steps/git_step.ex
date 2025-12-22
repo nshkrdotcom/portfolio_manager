@@ -1,204 +1,118 @@
 defmodule PortfolioManager.Workflow.Steps.GitStep do
   @moduledoc """
-  Git command execution step.
-
-  Supports various git operations on repositories.
+  Git operation steps.
   """
 
   alias PortfolioManager.Workflow.Context
 
-  @doc """
-  Executes a git step.
-
-  ## Config Options
-
-    * `command` - Git command to run (pull, push, fetch, status, etc.)
-    * `args` - Additional arguments for the command
-    * `path` - Repository path (defaults to context repo path)
-
-  """
-  @spec execute(map(), Context.t(), keyword()) ::
-          {:ok, Context.t(), term()} | {:error, term()}
+  @spec execute(map(), Context.t(), keyword()) :: {:ok, Context.t(), term()} | {:error, term()}
   def execute(step, context, _opts) do
-    config = step.config
+    action = to_string(step.action || "")
+    inputs = step.inputs || %{}
 
-    path =
-      case config do
-        %{"path" => p} -> Context.interpolate(context, p)
-        _ -> get_repo_path(context)
-      end
+    repo_path =
+      Map.get(inputs, "path") || Map.get(inputs, :path) || (context.repo && context.repo.path)
 
-    if is_nil(path) do
-      {:error, "No repository path specified"}
-    else
-      command = Map.get(config, "command", "status")
-      args = Map.get(config, "args", [])
-      args = if is_binary(args), do: String.split(args), else: args
-
-      execute_git(command, args, path, context, step.name)
+    case action do
+      "fetch" -> git_fetch(repo_path, inputs, context)
+      "diff" -> git_diff(repo_path, inputs, context)
+      "log" -> git_log(repo_path, inputs, context)
+      "clone" -> git_clone(inputs, context)
+      _ -> {:error, "Unknown git action: #{action}"}
     end
   end
 
-  defp get_repo_path(context) do
-    cond do
-      context.repo -> context.repo.path
-      Context.get_var(context, "repo_path") -> Context.get_var(context, "repo_path")
-      true -> nil
+  defp git_fetch(nil, _inputs, _context), do: {:error, "repo path required"}
+
+  defp git_fetch(path, inputs, context) do
+    url = Map.get(inputs, "url") || Map.get(inputs, :url)
+    args = if url, do: ["fetch", url], else: ["fetch"]
+
+    case run_git(path, args) do
+      {:ok, _} -> {:ok, context, %{fetched: true}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp execute_git("status", _args, path, context, step_name) do
-    case run_git(path, ["status", "--porcelain"]) do
-      {:ok, output} ->
-        is_dirty = output != ""
-        result = %{dirty: is_dirty, output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
+  defp git_diff(nil, _inputs, _context), do: {:error, "repo path required"}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+  defp git_diff(path, inputs, context) do
+    base = Map.get(inputs, "base") || Map.get(inputs, :base)
+    head = Map.get(inputs, "head") || Map.get(inputs, :head) || "HEAD"
 
-  defp execute_git("fetch", args, path, context, step_name) do
-    full_args = ["fetch"] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp execute_git("pull", args, path, context, step_name) do
-    full_args = ["pull"] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp execute_git("push", args, path, context, step_name) do
-    full_args = ["push"] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp execute_git("log", args, path, context, step_name) do
-    full_args = ["log"] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp execute_git("diff", args, path, context, step_name) do
-    full_args = ["diff"] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        has_diff = output != ""
-        result = %{has_diff: has_diff, output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp execute_git("commit", args, path, context, step_name) do
-    # Ensure there's a message
     args =
-      if Enum.any?(args, &String.starts_with?(&1, "-m")) do
-        args
+      if base do
+        ["rev-list", "--count", "#{base}..#{head}"]
       else
-        ["-m", "Automated commit"] ++ args
+        ["rev-list", "--count", head]
       end
 
-    full_args = ["commit"] ++ args
-
-    case run_git(path, full_args) do
+    case run_git(path, args) do
       {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
+        count =
+          output
+          |> String.trim()
+          |> Integer.parse()
+          |> case do
+            {int, _} -> int
+            _ -> 0
+          end
+
+        {:ok, context, %{commit_count: count, file_count: 0, changed_files: []}}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp execute_git("add", args, path, context, step_name) do
-    full_args = ["add"] ++ args
+  defp git_log(nil, _inputs, _context), do: {:error, "repo path required"}
 
-    case run_git(path, full_args) do
+  defp git_log(path, inputs, context) do
+    limit = Map.get(inputs, "limit") || Map.get(inputs, :limit) || 10
+
+    case run_git(path, ["log", "-n", to_string(limit), "--format=%H|%s"]) do
       {:ok, output} ->
-        result = %{output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
+        commits =
+          output
+          |> String.split("\n", trim: true)
+          |> Enum.map(fn line ->
+            case String.split(line, "|", parts: 2) do
+              [sha, msg] -> %{sha: sha, message: msg}
+              _ -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
+
+        {:ok, context, %{commits: commits}}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp execute_git("remote", args, path, context, step_name) do
-    full_args = ["remote"] ++ args
+  defp git_clone(inputs, context) do
+    url = Map.get(inputs, "url") || Map.get(inputs, :url)
+    dest = Map.get(inputs, "dest") || Map.get(inputs, :dest)
 
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{output: String.trim(output)}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
+    cond do
+      is_nil(url) ->
+        {:error, "url required"}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+      is_nil(dest) ->
+        {:error, "dest required"}
 
-  defp execute_git(command, args, path, context, step_name) do
-    full_args = [command] ++ args
-
-    case run_git(path, full_args) do
-      {:ok, output} ->
-        result = %{command: command, output: output}
-        new_ctx = Context.set_result(context, step_name, result)
-        {:ok, new_ctx, result}
-
-      {:error, reason} ->
-        {:error, reason}
+      true ->
+        case System.cmd("git", ["clone", url, dest], stderr_to_stdout: true) do
+          {_output, 0} -> {:ok, context, %{cloned: true, path: dest}}
+          {output, _} -> {:error, String.trim(output)}
+        end
     end
   end
 
   defp run_git(path, args) do
     case System.cmd("git", args, cd: path, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
-      {error, _code} -> {:error, String.trim(error)}
+      {error, _} -> {:error, String.trim(error)}
     end
   end
 end

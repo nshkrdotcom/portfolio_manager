@@ -12,7 +12,7 @@ defmodule Mix.Tasks.Portfolio.Init do
 
   ## Examples
 
-      # Initialize in default location (~/.portfolio)
+      # Initialize in default location (~/portfolio)
       mix portfolio.init
 
       # Initialize in specific path
@@ -22,6 +22,8 @@ defmodule Mix.Tasks.Portfolio.Init do
   @shortdoc "Initialize a new portfolio repository"
 
   use Mix.Task
+
+  alias PortfolioManager.CLI.Exit
 
   @impl Mix.Task
   def run(args) do
@@ -46,6 +48,7 @@ defmodule Mix.Tasks.Portfolio.Init do
 
       if PortfolioManager.Adapters.YAMLStorage.exists?(expanded) do
         Mix.shell().error("Portfolio already exists at #{expanded}")
+        Exit.halt(:config)
       else
         case PortfolioManager.Adapters.YAMLStorage.create(expanded) do
           :ok ->
@@ -66,12 +69,13 @@ defmodule Mix.Tasks.Portfolio.Init do
 
           {:error, reason} ->
             Mix.shell().error("Failed to initialize portfolio: #{inspect(reason)}")
+            Exit.halt(:error)
         end
       end
     end
   end
 
   defp default_portfolio_path do
-    Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

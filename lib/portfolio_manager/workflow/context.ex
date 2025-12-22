@@ -8,6 +8,7 @@ defmodule PortfolioManager.Workflow.Context do
   @type t :: %__MODULE__{
           workflow: String.t(),
           started_at: DateTime.t(),
+          inputs: map(),
           vars: map(),
           repo: map() | nil,
           context: map() | nil,
@@ -18,6 +19,7 @@ defmodule PortfolioManager.Workflow.Context do
   defstruct [
     :workflow,
     :started_at,
+    inputs: %{},
     vars: %{},
     repo: nil,
     context: nil,
@@ -33,6 +35,7 @@ defmodule PortfolioManager.Workflow.Context do
     %__MODULE__{
       workflow: Map.get(attrs, :workflow),
       started_at: Map.get(attrs, :started_at, DateTime.utc_now()),
+      inputs: Map.get(attrs, :inputs, %{}),
       vars: Map.get(attrs, :vars, %{}),
       repo: Map.get(attrs, :repo),
       context: Map.get(attrs, :context),
@@ -81,11 +84,33 @@ defmodule PortfolioManager.Workflow.Context do
   @spec interpolate(t(), String.t()) :: String.t()
   def interpolate(%__MODULE__{} = ctx, template) when is_binary(template) do
     Regex.replace(~r/\{\{(\w+(?:\.\w+)*)\}\}/, template, fn _, key ->
-      resolve_key(ctx, key) |> to_string()
+      resolve_key(ctx, key) |> format_value()
     end)
   end
 
   def interpolate(_ctx, value), do: value
+
+  @doc """
+  Resolves input values recursively, handling $refs and templates.
+  """
+  @spec resolve_inputs(t(), term()) :: term()
+  def resolve_inputs(%__MODULE__{} = ctx, value) when is_binary(value) do
+    if String.starts_with?(value, "$") do
+      resolve_key(ctx, String.trim_leading(value, "$"))
+    else
+      interpolate(ctx, value)
+    end
+  end
+
+  def resolve_inputs(%__MODULE__{} = ctx, value) when is_list(value) do
+    Enum.map(value, &resolve_inputs(ctx, &1))
+  end
+
+  def resolve_inputs(%__MODULE__{} = ctx, value) when is_map(value) do
+    Map.new(value, fn {k, v} -> {k, resolve_inputs(ctx, v)} end)
+  end
+
+  def resolve_inputs(_ctx, value), do: value
 
   @doc """
   Resolves a dotted key path from the context.
@@ -95,6 +120,7 @@ defmodule PortfolioManager.Workflow.Context do
     parts = String.split(key, ".")
 
     case parts do
+      ["inputs" | rest] -> get_nested(ctx.inputs, rest)
       ["repo" | rest] -> get_nested(ctx.repo, rest)
       ["context" | rest] -> get_nested(ctx.context, rest)
       ["results" | rest] -> get_nested(ctx.results, rest)
@@ -109,23 +135,63 @@ defmodule PortfolioManager.Workflow.Context do
   """
   @spec evaluate_condition(t(), String.t()) :: boolean()
   def evaluate_condition(%__MODULE__{} = ctx, condition) when is_binary(condition) do
-    # Simple condition evaluation
-    # Supports: "var == value", "var != value", "var", "!var"
     cond do
+      String.contains?(condition, " in ") ->
+        [left, right] = String.split(condition, " in ", parts: 2)
+        value = parse_value(String.trim(left))
+        collection = resolve_value(ctx, String.trim(right))
+        is_list(collection) and value in collection
+
       String.contains?(condition, "==") ->
         [left, right] = String.split(condition, "==", parts: 2)
-        resolve_key(ctx, String.trim(left)) == parse_value(String.trim(right))
+        resolve_value(ctx, String.trim(left)) == parse_value(String.trim(right))
 
       String.contains?(condition, "!=") ->
         [left, right] = String.split(condition, "!=", parts: 2)
-        resolve_key(ctx, String.trim(left)) != parse_value(String.trim(right))
+        resolve_value(ctx, String.trim(left)) != parse_value(String.trim(right))
+
+      String.contains?(condition, ">=") ->
+        [left, right] = String.split(condition, ">=", parts: 2)
+
+        compare_numbers(
+          resolve_value(ctx, String.trim(left)),
+          parse_value(String.trim(right)),
+          :>=
+        )
+
+      String.contains?(condition, "<=") ->
+        [left, right] = String.split(condition, "<=", parts: 2)
+
+        compare_numbers(
+          resolve_value(ctx, String.trim(left)),
+          parse_value(String.trim(right)),
+          :<=
+        )
+
+      String.contains?(condition, ">") ->
+        [left, right] = String.split(condition, ">", parts: 2)
+
+        compare_numbers(
+          resolve_value(ctx, String.trim(left)),
+          parse_value(String.trim(right)),
+          :>
+        )
+
+      String.contains?(condition, "<") ->
+        [left, right] = String.split(condition, "<", parts: 2)
+
+        compare_numbers(
+          resolve_value(ctx, String.trim(left)),
+          parse_value(String.trim(right)),
+          :<
+        )
 
       String.starts_with?(condition, "!") ->
         key = String.trim_leading(condition, "!")
-        !truthy?(resolve_key(ctx, String.trim(key)))
+        !truthy?(resolve_value(ctx, String.trim(key)))
 
       true ->
-        truthy?(resolve_key(ctx, String.trim(condition)))
+        truthy?(resolve_value(ctx, String.trim(condition)))
     end
   end
 
@@ -175,6 +241,15 @@ defmodule PortfolioManager.Workflow.Context do
   defp parse_value("null"), do: nil
 
   defp parse_value(value) do
+    value = String.trim(value)
+
+    value =
+      if String.starts_with?(value, "\"") and String.ends_with?(value, "\"") do
+        String.trim(value, "\"")
+      else
+        value
+      end
+
     case Integer.parse(value) do
       {int, ""} -> int
       _ -> String.trim(value, "\"")
@@ -187,4 +262,33 @@ defmodule PortfolioManager.Workflow.Context do
   defp truthy?(0), do: false
   defp truthy?([]), do: false
   defp truthy?(_), do: true
+
+  defp resolve_value(ctx, value) do
+    if String.starts_with?(value, "$") do
+      case resolve_key(ctx, String.trim_leading(value, "$")) do
+        atom when is_atom(atom) -> to_string(atom)
+        other -> other
+      end
+    else
+      parse_value(value)
+    end
+  end
+
+  defp compare_numbers(left, right, op) when is_number(left) and is_number(right) do
+    case op do
+      :> -> left > right
+      :>= -> left >= right
+      :< -> left < right
+      :<= -> left <= right
+    end
+  end
+
+  defp compare_numbers(_, _, _), do: false
+
+  defp format_value(nil), do: ""
+  defp format_value(value) when is_binary(value), do: value
+  defp format_value(value) when is_number(value), do: to_string(value)
+  defp format_value(value) when is_list(value), do: inspect(value)
+  defp format_value(value) when is_map(value), do: inspect(value)
+  defp format_value(value), do: to_string(value)
 end

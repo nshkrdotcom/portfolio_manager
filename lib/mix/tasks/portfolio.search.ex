@@ -8,6 +8,9 @@ defmodule Mix.Tasks.Portfolio.Search do
 
   ## Options
 
+    * `--field`, `-f` - Search specific fields (repeatable or comma-separated)
+    * `--regex`, `-r` - Treat query as regex
+    * `--case-sensitive` - Case sensitive search
     * `--json` - Output as JSON
     * `--help` - Show help message
 
@@ -15,6 +18,8 @@ defmodule Mix.Tasks.Portfolio.Search do
 
       mix portfolio.search authentication
       mix portfolio.search "data pipeline"
+      mix portfolio.search "TODO" --field=notes
+      mix portfolio.search "^auth" --regex
       mix portfolio.search --json "api"
 
   """
@@ -22,16 +27,21 @@ defmodule Mix.Tasks.Portfolio.Search do
 
   use Mix.Task
 
+  alias PortfolioManager.CLI.Exit
+
   @impl Mix.Task
   def run(args) do
     {opts, query_parts, _} =
       OptionParser.parse(args,
         strict: [
+          field: :keep,
+          regex: :boolean,
+          case_sensitive: :boolean,
           json: :boolean,
           help: :boolean,
           portfolio_dir: :string
         ],
-        aliases: [d: :portfolio_dir]
+        aliases: [d: :portfolio_dir, f: :field, r: :regex]
       )
 
     if opts[:help] do
@@ -41,6 +51,7 @@ defmodule Mix.Tasks.Portfolio.Search do
 
       if query == "" do
         Mix.shell().error("Missing search query. Usage: mix portfolio.search <query>")
+        Exit.halt(:invalid_args)
       else
         do_search(query, opts)
       end
@@ -52,7 +63,8 @@ defmodule Mix.Tasks.Portfolio.Search do
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        results = PortfolioManager.search(portfolio, query)
+        search_opts = build_search_opts(opts)
+        results = PortfolioManager.search(portfolio, query, search_opts)
 
         if opts[:json] do
           output_json(results)
@@ -62,7 +74,29 @@ defmodule Mix.Tasks.Portfolio.Search do
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
+        Exit.halt(:config)
     end
+  end
+
+  defp build_search_opts(opts) do
+    fields =
+      opts[:field]
+      |> List.wrap()
+      |> Enum.flat_map(&String.split(&1, ",", trim: true))
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(&String.to_atom/1)
+
+    base_opts =
+      if fields == [] do
+        []
+      else
+        [fields: fields]
+      end
+
+    base_opts
+    |> Keyword.put(:regex, opts[:regex] || false)
+    |> Keyword.put(:case_sensitive, opts[:case_sensitive] || false)
   end
 
   defp output_json(results) do
@@ -110,16 +144,21 @@ defmodule Mix.Tasks.Portfolio.Search do
     Search across all repositories.
 
     Options:
-      --json       Output as JSON
-      --help       Show this help message
+      --field, -f        Search specific fields (repeatable)
+      --regex, -r        Treat query as regex
+      --case-sensitive  Case sensitive search
+      --json            Output as JSON
+      --help            Show this help message
 
     Examples:
       mix portfolio.search authentication
       mix portfolio.search "data pipeline"
+      mix portfolio.search "TODO" --field=notes
+      mix portfolio.search "^auth" --regex
     """)
   end
 
   defp default_portfolio_path do
-    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), ".portfolio")
+    System.get_env("PORTFOLIO_DIR") || Path.join(System.user_home!(), "portfolio")
   end
 end

@@ -1,52 +1,65 @@
-name: initial-setup
-description: Initial setup for a newly tracked repository
-version: "1.0"
+schema_version: 1
 
-steps:
-  - name: check_readme
-    description: Check for README
-    file:
-      action: exists
-      path: "{{repo.path}}/README.md"
+workflow:
+  id: initial-setup
+  name: "Initial Setup"
+  description: "Scan and configure portfolio for existing repos"
+  version: 1.0.0
 
-  - name: check_gitignore
-    description: Check for .gitignore
-    file:
-      action: exists
-      path: "{{repo.path}}/.gitignore"
+  target: portfolio
 
-  - name: detect_type
-    description: Analyze repository type
-    context:
-      from:
-        detected_type: "repo.type"
-        detected_lang: "repo.language"
+  inputs:
+    directories:
+      type: array
+      required: true
 
-  - name: get_remote
-    description: Get remote URL
-    git:
-      command: remote
-      args: ["get-url", "origin"]
-    continue_on_error: true
+    agentic_detection:
+      type: boolean
+      default: true
 
-  - name: count_commits
-    description: Count total commits
-    shell:
-      command: git rev-list --count HEAD 2>/dev/null || echo 0
-      capture: total_commits
+  steps:
+    - id: scan
+      type: file
+      action: find_git_repos
+      inputs:
+        directories: $inputs.directories
+        exclude: ["node_modules", "deps", "_build", "vendor"]
+      outputs:
+        repos: discovered_repos
 
-  - name: get_first_commit
-    description: Get first commit date
-    shell:
-      command: git log --reverse --format=%ci 2>/dev/null | head -1 || echo "unknown"
-      capture: first_commit
+    - id: detect_basic
+      type: control
+      action: loop
+      inputs:
+        items: $discovered_repos
+        step:
+          id: basic_detect
+          type: detection
+          action: deterministic
+          inputs:
+            path: $item.path
+      outputs:
+        results: basic_detections
 
-  - name: update_context
-    description: Update repository context
-    update:
-      note: |
-        Initial setup completed.
-        Type: {{detected_type}}
-        Language: {{detected_lang}}
-        Total commits: {{total_commits}}
-        First commit: {{first_commit}}
+    - id: detect_agentic
+      type: control
+      action: condition
+      inputs:
+        condition: $inputs.agentic_detection == true
+        on_true:
+          - id: agentic_detect
+            type: control
+            action: loop
+            inputs:
+              items: $basic_detections
+              step:
+                id: agent_detect
+                type: detection
+                action: agentic
+                inputs:
+                  repo: $item
+      outputs:
+        results: agentic_detections
+
+  outputs:
+    repos: $discovered_repos

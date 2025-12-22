@@ -148,15 +148,28 @@ defmodule PortfolioManager.Domain.Registry do
   """
   @spec search(t(), String.t(), keyword()) :: [Repo.t()]
   def search(%__MODULE__{} = registry, query, opts \\ []) do
-    query_lower = String.downcase(query)
     fields = Keyword.get(opts, :fields, [:id, :name, :purpose, :tags])
+    regex? = Keyword.get(opts, :regex, false)
+    case_sensitive? = Keyword.get(opts, :case_sensitive, false)
+
+    regex =
+      if regex? do
+        flags = if case_sensitive?, do: "", else: "i"
+
+        case Regex.compile(query, flags) do
+          {:ok, compiled} -> compiled
+          {:error, _} -> :invalid
+        end
+      else
+        nil
+      end
 
     registry.repos
     |> Map.values()
     |> Enum.filter(fn repo ->
       Enum.any?(fields, fn field ->
         value = Map.get(repo, field)
-        matches_query?(value, query_lower)
+        matches_query?(value, query, regex, case_sensitive?)
       end)
     end)
   end
@@ -225,18 +238,27 @@ defmodule PortfolioManager.Domain.Registry do
   defp sort_repos(repos, :updated_at), do: Enum.sort_by(repos, & &1.updated_at, {:desc, DateTime})
   defp sort_repos(repos, _), do: repos
 
-  defp matches_query?(nil, _query), do: false
+  defp matches_query?(_value, _query, :invalid, _case_sensitive?), do: false
+  defp matches_query?(nil, _query, _regex, _case_sensitive?), do: false
 
-  defp matches_query?(value, query) when is_binary(value),
-    do: String.contains?(String.downcase(value), query)
+  defp matches_query?(value, _query, %Regex{} = regex, _case_sensitive?) when is_binary(value),
+    do: Regex.match?(regex, value)
 
-  defp matches_query?(values, query) when is_list(values),
-    do: Enum.any?(values, &matches_query?(&1, query))
+  defp matches_query?(value, query, nil, case_sensitive?) when is_binary(value) do
+    if case_sensitive? do
+      String.contains?(value, query)
+    else
+      String.contains?(String.downcase(value), String.downcase(query))
+    end
+  end
 
-  defp matches_query?(value, query) when is_atom(value),
-    do: matches_query?(to_string(value), query)
+  defp matches_query?(values, query, regex, case_sensitive?) when is_list(values),
+    do: Enum.any?(values, &matches_query?(&1, query, regex, case_sensitive?))
 
-  defp matches_query?(_, _), do: false
+  defp matches_query?(value, query, regex, case_sensitive?) when is_atom(value),
+    do: matches_query?(to_string(value), query, regex, case_sensitive?)
+
+  defp matches_query?(_, _query, _regex, _case_sensitive?), do: false
 
   defp group_count(repos, field) do
     repos

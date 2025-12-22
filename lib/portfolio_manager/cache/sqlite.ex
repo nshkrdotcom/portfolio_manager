@@ -9,27 +9,32 @@ defmodule PortfolioManager.Cache.SQLite do
 
   ## Usage
 
-      # Enable caching for a portfolio
-      {:ok, cache} = SQLite.start_link(portfolio_path: "~/.portfolio")
+      # Build index for a portfolio
+      :ok = SQLite.build_index("~/portfolio")
 
-      # Cache is automatically populated on sync
-      SQLite.sync(cache, repos)
+      # Use a long-lived cache process
+      {:ok, cache} = SQLite.start_link(portfolio_path: "~/portfolio")
+      SQLite.sync(cache, contexts)
 
       # Fast indexed queries
-      SQLite.search(cache, "elixir")
+      SQLite.search(cache, "orchestration")
       SQLite.filter(cache, language: "elixir", status: :active)
 
   ## Schema
 
   The cache stores denormalized repo data for fast queries:
-    - repos: id, name, path, type, language, status, purpose, tags, updated_at
-    - relationships: from_id, to_id, type
+    - repos: id, name, path, type, language, status, priority,
+      last_commit_date, commit_count_30d, purpose, notes, context_json, updated_at
+    - relationships: type, from_repo, to_repo, details_json
+    - repos_fts: FTS5 index for id/name/purpose/notes
 
   """
 
   use GenServer
 
   require Logger
+
+  alias PortfolioManager.Domain.{Context, Repo}
 
   @type t :: GenServer.server()
 
@@ -66,11 +71,51 @@ defmodule PortfolioManager.Cache.SQLite do
   end
 
   @doc """
+  Returns the index database path for a portfolio.
+  """
+  @spec index_path(String.t() | GenServer.server()) :: String.t()
+  def index_path(portfolio_or_path) do
+    path =
+      case portfolio_or_path do
+        binary when is_binary(binary) -> Path.expand(binary)
+        _ -> PortfolioManager.Portfolio.get_storage_state(portfolio_or_path).path
+      end
+
+    Path.join([path, ".portfolio", "cache", "index.db"])
+  end
+
+  @doc """
   Syncs repositories to the cache.
   """
   @spec sync(t(), [map()]) :: :ok | {:error, term()}
   def sync(cache, repos) do
     GenServer.call(cache, {:sync, repos}, :infinity)
+  end
+
+  @doc """
+  Builds the SQLite index for a portfolio path or server.
+  """
+  @spec build_index(String.t() | GenServer.server()) :: :ok | {:error, term()}
+  def build_index(portfolio_or_path) do
+    with {:ok, portfolio, path} <- resolve_portfolio(portfolio_or_path),
+         {:ok, cache} <- start_link(portfolio_path: path) do
+      contexts =
+        portfolio
+        |> PortfolioManager.list_repos()
+        |> Enum.flat_map(fn repo ->
+          case PortfolioManager.get_context(portfolio, repo.id) do
+            {:ok, context} -> [context]
+            _ -> []
+          end
+        end)
+
+      relationships = fetch_relationships(portfolio)
+
+      :ok = sync(cache, contexts)
+      :ok = sync_relationships(cache, relationships)
+      GenServer.stop(cache)
+      :ok
+    end
   end
 
   @doc """
@@ -134,7 +179,7 @@ defmodule PortfolioManager.Cache.SQLite do
   @impl true
   def init(opts) do
     portfolio_path = Keyword.fetch!(opts, :portfolio_path)
-    db_path = Path.join(portfolio_path, ".cache.sqlite3")
+    db_path = Path.join([portfolio_path, ".portfolio", "cache", "index.db"])
 
     case open_database(db_path) do
       {:ok, conn} ->
@@ -220,13 +265,17 @@ defmodule PortfolioManager.Cache.SQLite do
     Exqlite.Sqlite3.execute(conn, """
     CREATE TABLE IF NOT EXISTS repos (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
+      name TEXT,
+      path TEXT,
       type TEXT,
       language TEXT,
       status TEXT,
+      priority TEXT,
+      last_commit_date TEXT,
+      commit_count_30d INTEGER,
       purpose TEXT,
-      tags TEXT,
+      notes TEXT,
+      context_json TEXT,
       updated_at TEXT
     )
     """)
@@ -234,10 +283,18 @@ defmodule PortfolioManager.Cache.SQLite do
     # Create relationships table
     Exqlite.Sqlite3.execute(conn, """
     CREATE TABLE IF NOT EXISTS relationships (
-      from_id TEXT NOT NULL,
-      to_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      PRIMARY KEY (from_id, to_id, type)
+      id INTEGER PRIMARY KEY,
+      type TEXT,
+      from_repo TEXT,
+      to_repo TEXT,
+      details_json TEXT
+    )
+    """)
+
+    # Create FTS table
+    Exqlite.Sqlite3.execute(conn, """
+    CREATE VIRTUAL TABLE IF NOT EXISTS repos_fts USING fts5(
+      id, name, purpose, notes, content='repos'
     )
     """)
 
@@ -248,20 +305,16 @@ defmodule PortfolioManager.Cache.SQLite do
     )
 
     Exqlite.Sqlite3.execute(conn, "CREATE INDEX IF NOT EXISTS idx_repos_type ON repos(type)")
+    Exqlite.Sqlite3.execute(conn, "CREATE INDEX IF NOT EXISTS idx_repos_status ON repos(status)")
 
     Exqlite.Sqlite3.execute(
       conn,
-      "CREATE INDEX IF NOT EXISTS idx_repos_status ON repos(status)"
+      "CREATE INDEX IF NOT EXISTS idx_rels_from ON relationships(from_repo)"
     )
 
     Exqlite.Sqlite3.execute(
       conn,
-      "CREATE INDEX IF NOT EXISTS idx_rels_from ON relationships(from_id)"
-    )
-
-    Exqlite.Sqlite3.execute(
-      conn,
-      "CREATE INDEX IF NOT EXISTS idx_rels_to ON relationships(to_id)"
+      "CREATE INDEX IF NOT EXISTS idx_rels_to ON relationships(to_repo)"
     )
 
     :ok
@@ -271,31 +324,32 @@ defmodule PortfolioManager.Cache.SQLite do
       {:error, :schema_init_failed}
   end
 
-  defp do_sync_repos(conn, repos) do
-    # Clear existing repos
+  defp do_sync_repos(conn, items) do
     Exqlite.Sqlite3.execute(conn, "DELETE FROM repos")
 
-    # Prepare statement
     {:ok, stmt} =
       Exqlite.Sqlite3.prepare(
         conn,
-        "INSERT OR REPLACE INTO repos (id, name, path, type, language, status, purpose, tags, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO repos (id, name, path, type, language, status, priority, last_commit_date, commit_count_30d, purpose, notes, context_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
 
-    # Insert repos
-    Enum.each(repos, fn repo ->
-      tags_json = Jason.encode!(Map.get(repo, :tags) || [])
+    Enum.each(items, fn item ->
+      row = normalize_repo_row(item)
 
       Exqlite.Sqlite3.bind(stmt, [
-        repo.id,
-        repo.name,
-        repo.path,
-        to_string(repo.type || "unknown"),
-        to_string(repo.language || ""),
-        to_string(repo.status || "unknown"),
-        Map.get(repo, :purpose) || "",
-        tags_json,
-        DateTime.to_iso8601(DateTime.utc_now())
+        row.id,
+        row.name,
+        row.path,
+        row.type,
+        row.language,
+        row.status,
+        row.priority,
+        row.last_commit_date,
+        row.commit_count_30d,
+        row.purpose,
+        row.notes,
+        row.context_json,
+        row.updated_at
       ])
 
       Exqlite.Sqlite3.step(conn, stmt)
@@ -303,7 +357,7 @@ defmodule PortfolioManager.Cache.SQLite do
     end)
 
     Exqlite.Sqlite3.release(conn, stmt)
-    :ok
+    rebuild_fts(conn)
   rescue
     e ->
       Logger.error("Failed to sync repos to cache: #{inspect(e)}")
@@ -311,19 +365,22 @@ defmodule PortfolioManager.Cache.SQLite do
   end
 
   defp do_sync_relationships(conn, relationships) do
-    # Clear existing relationships
     Exqlite.Sqlite3.execute(conn, "DELETE FROM relationships")
 
-    # Prepare statement
     {:ok, stmt} =
       Exqlite.Sqlite3.prepare(
         conn,
-        "INSERT OR REPLACE INTO relationships (from_id, to_id, type) VALUES (?, ?, ?)"
+        "INSERT INTO relationships (type, from_repo, to_repo, details_json) VALUES (?, ?, ?, ?)"
       )
 
-    # Insert relationships
     Enum.each(relationships, fn rel ->
-      Exqlite.Sqlite3.bind(stmt, [rel.from, rel.to, to_string(rel.type)])
+      details_json =
+        case Map.get(rel, :details) || Map.get(rel, "details") do
+          nil -> nil
+          details -> Jason.encode!(details)
+        end
+
+      Exqlite.Sqlite3.bind(stmt, [to_string(rel.type), rel.from, rel.to, details_json])
       Exqlite.Sqlite3.step(conn, stmt)
       Exqlite.Sqlite3.reset(stmt)
     end)
@@ -337,15 +394,21 @@ defmodule PortfolioManager.Cache.SQLite do
   end
 
   defp do_search(conn, query) do
-    pattern = "%#{query}%"
-
     {:ok, stmt} =
       Exqlite.Sqlite3.prepare(
         conn,
-        "SELECT * FROM repos WHERE id LIKE ? OR name LIKE ? OR purpose LIKE ? OR tags LIKE ? LIMIT 100"
+        """
+        SELECT repos.id, repos.name, repos.path, repos.type, repos.language, repos.status,
+               repos.priority, repos.last_commit_date, repos.commit_count_30d, repos.purpose,
+               repos.notes, repos.context_json, repos.updated_at
+        FROM repos_fts
+        JOIN repos ON repos_fts.rowid = repos.rowid
+        WHERE repos_fts MATCH ?
+        LIMIT 100
+        """
       )
 
-    Exqlite.Sqlite3.bind(stmt, [pattern, pattern, pattern, pattern])
+    Exqlite.Sqlite3.bind(stmt, [query])
 
     rows = fetch_all_rows(conn, stmt)
     Exqlite.Sqlite3.release(conn, stmt)
@@ -369,7 +432,8 @@ defmodule PortfolioManager.Cache.SQLite do
         "WHERE " <> Enum.join(conditions, " AND ")
       end
 
-    sql = "SELECT * FROM repos #{where_clause} LIMIT #{limit}"
+    sql =
+      "SELECT id, name, path, type, language, status, priority, last_commit_date, commit_count_30d, purpose, notes, context_json, updated_at FROM repos #{where_clause} LIMIT #{limit}"
 
     {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, sql)
 
@@ -399,13 +463,21 @@ defmodule PortfolioManager.Cache.SQLite do
       {:status, status}, {conds, params} ->
         {["status = ?" | conds], params ++ [to_string(status)]}
 
+      {:priority, priority}, {conds, params} ->
+        {["priority = ?" | conds], params ++ [to_string(priority)]}
+
       _, acc ->
         acc
     end)
   end
 
   defp do_get(conn, repo_id) do
-    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT * FROM repos WHERE id = ?")
+    {:ok, stmt} =
+      Exqlite.Sqlite3.prepare(
+        conn,
+        "SELECT id, name, path, type, language, status, priority, last_commit_date, commit_count_30d, purpose, notes, context_json, updated_at FROM repos WHERE id = ?"
+      )
+
     Exqlite.Sqlite3.bind(stmt, [repo_id])
 
     result =
@@ -444,6 +516,7 @@ defmodule PortfolioManager.Cache.SQLite do
 
   defp do_clear(conn) do
     Exqlite.Sqlite3.execute(conn, "DELETE FROM repos")
+    Exqlite.Sqlite3.execute(conn, "DELETE FROM repos_fts")
     Exqlite.Sqlite3.execute(conn, "DELETE FROM relationships")
     :ok
   end
@@ -459,13 +532,21 @@ defmodule PortfolioManager.Cache.SQLite do
     end
   end
 
-  defp row_to_repo([id, name, path, type, language, status, purpose, tags_json, updated_at]) do
-    tags =
-      case Jason.decode(tags_json || "[]") do
-        {:ok, tags} -> tags
-        _ -> []
-      end
-
+  defp row_to_repo([
+         id,
+         name,
+         path,
+         type,
+         language,
+         status,
+         priority,
+         last_commit_date,
+         commit_count_30d,
+         purpose,
+         notes,
+         context_json,
+         updated_at
+       ]) do
     %{
       id: id,
       name: name,
@@ -473,11 +554,140 @@ defmodule PortfolioManager.Cache.SQLite do
       type: String.to_atom(type || "unknown"),
       language: language,
       status: String.to_atom(status || "unknown"),
+      priority: priority && String.to_atom(priority),
+      last_commit_date: last_commit_date,
+      commit_count_30d: commit_count_30d,
       purpose: purpose,
-      tags: tags,
+      notes: notes,
+      context: decode_context_json(context_json),
       updated_at: updated_at
     }
   end
 
   defp row_to_repo(_), do: %{}
+
+  defp decode_context_json(nil), do: %{}
+
+  defp decode_context_json(content) do
+    case Jason.decode(content) do
+      {:ok, map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp normalize_repo_row(%Context{} = context) do
+    repo = context.repo
+    computed = context.computed || %{}
+
+    %{
+      id: repo.id,
+      name: repo.name || repo.id,
+      path: repo.path,
+      type: to_string(repo.type || "unknown"),
+      language: repo.language && to_string(repo.language),
+      status: to_string(repo.status || "unknown"),
+      priority: repo.priority && to_string(repo.priority),
+      last_commit_date: extract_last_commit_date(computed),
+      commit_count_30d: extract_commit_count_30d(computed),
+      purpose: repo.purpose || "",
+      notes: context.notes || "",
+      context_json: Jason.encode!(Context.to_map(context)),
+      updated_at: DateTime.to_iso8601(DateTime.utc_now())
+    }
+  end
+
+  defp normalize_repo_row(%{repo: %Repo{} = repo} = item) do
+    computed = Map.get(item, :computed) || Map.get(item, "computed") || %{}
+    notes = Map.get(item, :notes) || Map.get(item, "notes") || ""
+
+    %{
+      id: repo.id,
+      name: repo.name || repo.id,
+      path: repo.path,
+      type: to_string(repo.type || "unknown"),
+      language: repo.language && to_string(repo.language),
+      status: to_string(repo.status || "unknown"),
+      priority: repo.priority && to_string(repo.priority),
+      last_commit_date: extract_last_commit_date(computed),
+      commit_count_30d: extract_commit_count_30d(computed),
+      purpose: repo.purpose || "",
+      notes: notes,
+      context_json: Jason.encode!(%{repo: Repo.to_map(repo), computed: computed}),
+      updated_at: DateTime.to_iso8601(DateTime.utc_now())
+    }
+  end
+
+  defp normalize_repo_row(%Repo{} = repo) do
+    %{
+      id: repo.id,
+      name: repo.name || repo.id,
+      path: repo.path,
+      type: to_string(repo.type || "unknown"),
+      language: repo.language && to_string(repo.language),
+      status: to_string(repo.status || "unknown"),
+      priority: repo.priority && to_string(repo.priority),
+      last_commit_date: nil,
+      commit_count_30d: nil,
+      purpose: repo.purpose || "",
+      notes: "",
+      context_json: nil,
+      updated_at: DateTime.to_iso8601(DateTime.utc_now())
+    }
+  end
+
+  defp normalize_repo_row(map) when is_map(map) do
+    %{
+      id: Map.get(map, :id) || Map.get(map, "id"),
+      name: Map.get(map, :name) || Map.get(map, "name"),
+      path: Map.get(map, :path) || Map.get(map, "path"),
+      type: Map.get(map, :type) || Map.get(map, "type") || "unknown",
+      language: Map.get(map, :language) || Map.get(map, "language"),
+      status: Map.get(map, :status) || Map.get(map, "status") || "unknown",
+      priority: Map.get(map, :priority) || Map.get(map, "priority"),
+      last_commit_date: Map.get(map, :last_commit_date) || Map.get(map, "last_commit_date"),
+      commit_count_30d: Map.get(map, :commit_count_30d) || Map.get(map, "commit_count_30d"),
+      purpose: Map.get(map, :purpose) || Map.get(map, "purpose") || "",
+      notes: Map.get(map, :notes) || Map.get(map, "notes") || "",
+      context_json: Map.get(map, :context_json) || Map.get(map, "context_json"),
+      updated_at:
+        Map.get(map, :updated_at) || Map.get(map, "updated_at") ||
+          DateTime.to_iso8601(DateTime.utc_now())
+    }
+  end
+
+  defp extract_last_commit_date(computed) do
+    case Map.get(computed, "last_commit") || Map.get(computed, :last_commit) do
+      %{"date" => date} -> date
+      %{date: date} -> date
+      _ -> nil
+    end
+  end
+
+  defp extract_commit_count_30d(computed) do
+    Map.get(computed, "commit_count_30d") || Map.get(computed, :commit_count_30d)
+  end
+
+  defp rebuild_fts(conn) do
+    Exqlite.Sqlite3.execute(conn, "INSERT INTO repos_fts(repos_fts) VALUES('rebuild')")
+    :ok
+  end
+
+  defp resolve_portfolio(portfolio) when is_pid(portfolio) or is_atom(portfolio) do
+    state = PortfolioManager.Portfolio.get_storage_state(portfolio)
+    {:ok, portfolio, state.path}
+  end
+
+  defp resolve_portfolio(path) when is_binary(path) do
+    expanded = Path.expand(path)
+
+    case PortfolioManager.init(expanded) do
+      {:ok, portfolio} -> {:ok, portfolio, expanded}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp fetch_relationships(portfolio) do
+    state = PortfolioManager.Portfolio.get_state(portfolio)
+    state.registry.relationships
+  end
 end

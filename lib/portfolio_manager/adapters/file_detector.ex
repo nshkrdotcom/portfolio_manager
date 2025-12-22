@@ -186,7 +186,7 @@ defmodule PortfolioManager.Adapters.FileDetector do
         :javascript -> detect_js_deps(expanded)
         :rust -> detect_rust_deps(expanded)
         :go -> detect_go_deps(expanded)
-        _ -> []
+        _ -> empty_dep_buckets()
       end
 
     {:ok, deps}
@@ -240,7 +240,7 @@ defmodule PortfolioManager.Adapters.FileDetector do
 
   defp detect_framework(path, :python) do
     files = list_files(path)
-    deps = detect_python_deps(path)
+    deps = detect_python_deps(path) |> flatten_deps()
 
     cond do
       "manage.py" in files -> "django"
@@ -293,28 +293,26 @@ defmodule PortfolioManager.Adapters.FileDetector do
     if File.exists?(mix_path) do
       case File.read(mix_path) do
         {:ok, content} ->
-          ~r/\{:(\w+),/
-          |> Regex.scan(content)
-          |> Enum.map(fn [_, dep] -> dep end)
-          |> Enum.uniq()
+          sections = extract_mix_deps_sections(content)
+
+          sections
+          |> Enum.reduce(empty_dep_buckets(), fn section, acc ->
+            merge_dep_buckets(acc, parse_mix_deps_section(section))
+          end)
 
         _ ->
-          []
+          empty_dep_buckets()
       end
     else
-      []
+      empty_dep_buckets()
     end
   end
 
   defp detect_python_deps(path) do
-    # Try pyproject.toml first, then requirements.txt
-    pyproject_deps = detect_pyproject_deps(path)
-
-    if pyproject_deps != [] do
-      pyproject_deps
-    else
-      read_requirements(path)
-    end
+    empty_dep_buckets()
+    |> merge_dep_buckets(detect_pyproject_deps(path))
+    |> merge_dep_buckets(detect_setup_py_deps(path))
+    |> merge_dep_buckets(detect_requirements_deps(path))
   end
 
   defp detect_pyproject_deps(path) do
@@ -323,18 +321,71 @@ defmodule PortfolioManager.Adapters.FileDetector do
     if File.exists?(pyproject_path) do
       case File.read(pyproject_path) do
         {:ok, content} ->
-          # Parse dependencies from [project.dependencies] section
-          ~r/"([a-zA-Z][\w\-]*)[\[>=<\s]/
-          |> Regex.scan(content)
-          |> Enum.map(fn [_, dep] -> dep end)
-          |> Enum.uniq()
+          runtime =
+            content
+            |> extract_toml_section("project")
+            |> extract_toml_array("dependencies")
+            |> Enum.map(&normalize_python_dep/1)
+
+          {dev, optional} = extract_pyproject_optional(content)
+
+          %{
+            runtime: runtime,
+            dev: dev,
+            optional: optional
+          }
+          |> normalize_dep_buckets()
 
         _ ->
-          []
+          empty_dep_buckets()
       end
     else
-      []
+      empty_dep_buckets()
     end
+  end
+
+  defp detect_setup_py_deps(path) do
+    setup_path = Path.join(path, "setup.py")
+
+    if File.exists?(setup_path) do
+      case File.read(setup_path) do
+        {:ok, content} ->
+          runtime =
+            content
+            |> extract_python_list("install_requires")
+            |> Enum.map(&normalize_python_dep/1)
+
+          dev_from_tests =
+            content
+            |> extract_python_list("tests_require")
+            |> Enum.map(&normalize_python_dep/1)
+
+          {dev, optional} = extract_setup_extras(content)
+
+          %{
+            runtime: runtime,
+            dev: Enum.uniq(dev ++ dev_from_tests),
+            optional: optional
+          }
+          |> normalize_dep_buckets()
+
+        _ ->
+          empty_dep_buckets()
+      end
+    else
+      empty_dep_buckets()
+    end
+  end
+
+  defp detect_requirements_deps(path) do
+    runtime = read_requirements(path)
+
+    %{
+      runtime: runtime,
+      dev: [],
+      optional: []
+    }
+    |> normalize_dep_buckets()
   end
 
   defp detect_js_deps(path) do
@@ -345,19 +396,27 @@ defmodule PortfolioManager.Adapters.FileDetector do
         {:ok, content} ->
           case Jason.decode(content) do
             {:ok, pkg} ->
-              deps = Map.get(pkg, "dependencies", %{})
-              dev_deps = Map.get(pkg, "devDependencies", %{})
-              Map.keys(deps) ++ Map.keys(dev_deps)
+              runtime = Map.get(pkg, "dependencies", %{}) |> Map.keys()
+              dev = Map.get(pkg, "devDependencies", %{}) |> Map.keys()
+              peer = Map.get(pkg, "peerDependencies", %{}) |> Map.keys()
+              optional = Map.get(pkg, "optionalDependencies", %{}) |> Map.keys()
+
+              %{
+                runtime: runtime,
+                dev: dev,
+                optional: Enum.uniq(peer ++ optional)
+              }
+              |> normalize_dep_buckets()
 
             _ ->
-              []
+              empty_dep_buckets()
           end
 
         _ ->
-          []
+          empty_dep_buckets()
       end
     else
-      []
+      empty_dep_buckets()
     end
   end
 
@@ -367,16 +426,44 @@ defmodule PortfolioManager.Adapters.FileDetector do
     if File.exists?(cargo_path) do
       case File.read(cargo_path) do
         {:ok, content} ->
-          ~r/^(\w[\w-]*)\s*=/m
-          |> Regex.scan(content)
-          |> Enum.map(fn [_, dep] -> dep end)
-          |> Enum.reject(&(&1 in ["name", "version", "edition", "authors"]))
+          {_, deps} =
+            content
+            |> String.split("\n")
+            |> Enum.reduce({nil, empty_dep_buckets()}, fn line, {current, acc} ->
+              cond do
+                Regex.match?(~r/^\s*\[dependencies\]\s*$/, line) ->
+                  {:runtime, acc}
+
+                Regex.match?(~r/^\s*\[dev-dependencies\]\s*$/, line) ->
+                  {:dev, acc}
+
+                Regex.match?(~r/^\s*\[build-dependencies\]\s*$/, line) ->
+                  {:optional, acc}
+
+                Regex.match?(~r/^\s*\[.+\]\s*$/, line) ->
+                  {nil, acc}
+
+                current in [:runtime, :dev, :optional] ->
+                  case Regex.run(~r/^\s*([A-Za-z0-9_-]+)\s*=/, line) do
+                    [_, dep] ->
+                      {current, Map.update(acc, current, [dep], &[dep | &1])}
+
+                    _ ->
+                      {current, acc}
+                  end
+
+                true ->
+                  {current, acc}
+              end
+            end)
+
+          normalize_dep_buckets(deps)
 
         _ ->
-          []
+          empty_dep_buckets()
       end
     else
-      []
+      empty_dep_buckets()
     end
   end
 
@@ -386,19 +473,25 @@ defmodule PortfolioManager.Adapters.FileDetector do
     if File.exists?(go_mod_path) do
       case File.read(go_mod_path) do
         {:ok, content} ->
-          # Parse require blocks: require github.com/user/pkg v1.0.0
-          # Also handles multi-line require ( ... ) blocks
-          ~r/(?:require\s+|\t)([\w\.\-\/]+)\s+v/
-          |> Regex.scan(content)
-          |> Enum.map(fn [_, dep] -> dep end)
-          |> Enum.reject(&String.contains?(&1, "// indirect"))
-          |> Enum.uniq()
+          runtime =
+            ~r/(?:require\s+|\t)([\w\.\-\/]+)\s+v/
+            |> Regex.scan(content)
+            |> Enum.map(fn [_, dep] -> dep end)
+            |> Enum.reject(&String.contains?(&1, "// indirect"))
+            |> Enum.uniq()
+
+          %{
+            runtime: runtime,
+            dev: [],
+            optional: []
+          }
+          |> normalize_dep_buckets()
 
         _ ->
-          []
+          empty_dep_buckets()
       end
     else
-      []
+      empty_dep_buckets()
     end
   end
 
@@ -412,12 +505,8 @@ defmodule PortfolioManager.Adapters.FileDetector do
           |> String.split("\n")
           |> Enum.map(&String.trim/1)
           |> Enum.reject(&(String.starts_with?(&1, "#") or &1 == ""))
-          |> Enum.map(fn line ->
-            line
-            |> String.split(~r/[<>=!]/)
-            |> List.first()
-            |> String.trim()
-          end)
+          |> Enum.map(&normalize_python_dep/1)
+          |> Enum.reject(&(&1 == ""))
 
         _ ->
           []
@@ -432,6 +521,160 @@ defmodule PortfolioManager.Adapters.FileDetector do
       {:ok, files} -> files
       _ -> []
     end
+  end
+
+  defp extract_mix_deps_sections(content) do
+    deps_blocks =
+      Regex.scan(~r/defp\s+deps\s+do\s*(\[.*?\])\s*end/s, content)
+      |> Enum.map(fn [_, block] -> block end)
+
+    inline_blocks =
+      Regex.scan(~r/deps:\s*(\[[^\]]*\])/s, content)
+      |> Enum.map(fn [_, block] -> block end)
+
+    deps_blocks ++ inline_blocks
+  end
+
+  defp parse_mix_deps_section(section) do
+    Regex.scan(~r/\{:(\w+)\s*,([^}]*)\}/s, section)
+    |> Enum.reduce(empty_dep_buckets(), fn [_, dep, opts], acc ->
+      category = classify_elixir_dep(opts)
+      Map.update(acc, category, [dep], &[dep | &1])
+    end)
+    |> normalize_dep_buckets()
+  end
+
+  defp classify_elixir_dep(opts) when is_binary(opts) do
+    cond do
+      Regex.match?(~r/optional:\s*true/, opts) ->
+        :optional
+
+      Regex.match?(~r/only:\s*\[?[^\]]*:(dev|test)[^\]]*\]?/, opts) ->
+        :dev
+
+      Regex.match?(~r/only:\s*:(dev|test)/, opts) ->
+        :dev
+
+      true ->
+        :runtime
+    end
+  end
+
+  defp classify_elixir_dep(_), do: :runtime
+
+  defp extract_toml_section(content, section) do
+    case Regex.run(~r/^\s*\[#{Regex.escape(section)}\]\s*$(.*?)(?=^\s*\[|\z)/ms, content) do
+      [_, body] -> body
+      _ -> nil
+    end
+  end
+
+  defp extract_toml_array(nil, _key), do: []
+
+  defp extract_toml_array(section, key) do
+    multiline = ~r/#{key}\s*=\s*\[(.*?)(?:^\s*\])/ms
+
+    case Regex.run(multiline, section) do
+      [_, body] ->
+        extract_quoted_strings(body)
+
+      _ ->
+        case Regex.run(~r/#{key}\s*=\s*\[(.*?)\]/ms, section) do
+          [_, body] -> extract_quoted_strings(body)
+          _ -> []
+        end
+    end
+  end
+
+  defp extract_pyproject_optional(content) do
+    section = extract_toml_section(content, "project.optional-dependencies")
+
+    if is_binary(section) do
+      Regex.scan(~r/^\s*([A-Za-z0-9_-]+)\s*=\s*\[(.*?)\]/ms, section)
+      |> Enum.reduce({[], []}, fn [_, group, list_body], {dev, optional} ->
+        deps = extract_quoted_strings(list_body) |> Enum.map(&normalize_python_dep/1)
+        group = String.downcase(group)
+
+        if group in ["dev", "test", "tests", "development"] do
+          {dev ++ deps, optional}
+        else
+          {dev, optional ++ deps}
+        end
+      end)
+      |> then(fn {dev, optional} ->
+        {Enum.uniq(dev), Enum.uniq(optional)}
+      end)
+    else
+      {[], []}
+    end
+  end
+
+  defp extract_python_list(content, key) do
+    case Regex.run(~r/#{key}\s*=\s*\[(.*?)\]/ms, content) do
+      [_, body] -> extract_quoted_strings(body)
+      _ -> []
+    end
+  end
+
+  defp extract_setup_extras(content) do
+    case Regex.run(~r/extras_require\s*=\s*\{(.*?)\}/ms, content) do
+      [_, body] ->
+        Regex.scan(~r/["']([^"']+)["']\s*:\s*\[(.*?)\]/ms, body)
+        |> Enum.reduce({[], []}, fn [_, group, list_body], {dev, optional} ->
+          deps = extract_quoted_strings(list_body) |> Enum.map(&normalize_python_dep/1)
+          group = String.downcase(group)
+
+          if group in ["dev", "test", "tests", "development"] do
+            {dev ++ deps, optional}
+          else
+            {dev, optional ++ deps}
+          end
+        end)
+        |> then(fn {dev, optional} ->
+          {Enum.uniq(dev), Enum.uniq(optional)}
+        end)
+
+      _ ->
+        {[], []}
+    end
+  end
+
+  defp extract_quoted_strings(body) when is_binary(body) do
+    Regex.scan(~r/["']([^"']+)["']/, body)
+    |> Enum.map(fn [_, value] -> String.trim(value) end)
+  end
+
+  defp normalize_python_dep(dep) when is_binary(dep) do
+    dep
+    |> String.trim()
+    |> String.split(~r/[\s\[\(<>=!~;]/, parts: 2)
+    |> List.first()
+    |> String.trim()
+  end
+
+  defp empty_dep_buckets do
+    %{runtime: [], dev: [], optional: []}
+  end
+
+  defp merge_dep_buckets(a, b) do
+    %{
+      runtime: Enum.uniq(a.runtime ++ b.runtime),
+      dev: Enum.uniq(a.dev ++ b.dev),
+      optional: Enum.uniq(a.optional ++ b.optional)
+    }
+    |> normalize_dep_buckets()
+  end
+
+  defp normalize_dep_buckets(deps) do
+    %{
+      runtime: deps.runtime |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq() |> Enum.sort(),
+      dev: deps.dev |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq() |> Enum.sort(),
+      optional: deps.optional |> Enum.reject(&(&1 in [nil, ""])) |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  defp flatten_deps(%{runtime: runtime, dev: dev, optional: optional}) do
+    Enum.uniq(runtime ++ dev ++ optional)
   end
 
   defp calculate_confidence(language, type) do
