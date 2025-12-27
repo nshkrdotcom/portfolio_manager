@@ -286,25 +286,26 @@ defmodule Mix.Tasks.Portfolio.Repl do
   defp parse_updates(str) do
     str
     |> String.split()
-    |> Enum.reduce(%{}, fn part, acc ->
-      case String.split(part, "=", parts: 2) do
-        [key, value] ->
-          atom_key = String.to_atom(key)
-
-          parsed_value =
-            cond do
-              key in ~w(status type priority) -> String.to_atom(value)
-              key == "tags" -> String.split(value, ",")
-              true -> value
-            end
-
-          Map.put(acc, atom_key, parsed_value)
-
-        _ ->
-          acc
-      end
-    end)
+    |> Enum.reduce(%{}, &parse_update_part/2)
   end
+
+  defp parse_update_part(part, acc) do
+    case String.split(part, "=", parts: 2) do
+      [key, value] ->
+        atom_key = String.to_atom(key)
+        parsed_value = parse_update_value(key, value)
+        Map.put(acc, atom_key, parsed_value)
+
+      _ ->
+        acc
+    end
+  end
+
+  defp parse_update_value(key, value) when key in ~w(status type priority),
+    do: String.to_atom(value)
+
+  defp parse_update_value("tags", value), do: String.split(value, ",")
+  defp parse_update_value(_key, value), do: value
 
   defp apply_filters(repos, args) do
     repos
@@ -411,8 +412,7 @@ defmodule Mix.Tasks.Portfolio.Repl do
   defp format_counts(map) do
     map
     |> Enum.sort_by(fn {_k, v} -> -v end)
-    |> Enum.map(fn {k, v} -> "  #{String.pad_trailing(to_string(k), 15)} #{v}" end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn {k, v} -> "  #{String.pad_trailing(to_string(k), 15)} #{v}" end)
   end
 
   defp show_help do

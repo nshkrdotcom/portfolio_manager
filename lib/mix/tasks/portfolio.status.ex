@@ -38,12 +38,7 @@ defmodule Mix.Tasks.Portfolio.Status do
       case PortfolioManager.init(portfolio_path) do
         {:ok, portfolio} ->
           stats = gather_stats(portfolio)
-
-          if opts[:json] do
-            output_json(stats)
-          else
-            output_formatted(stats, portfolio_path)
-          end
+          display_stats(stats, portfolio_path, opts)
 
         {:error, :not_initialized} ->
           Mix.shell().error("""
@@ -69,6 +64,14 @@ defmodule Mix.Tasks.Portfolio.Status do
       by_type: Map.new(by_type, fn {k, v} -> {k, length(v)} end),
       by_language: Map.new(by_language, fn {k, v} -> {k, length(v)} end)
     }
+  end
+
+  defp display_stats(stats, portfolio_path, opts) do
+    if opts[:json] do
+      output_json(stats)
+    else
+      output_formatted(stats, portfolio_path)
+    end
   end
 
   defp output_json(stats) do

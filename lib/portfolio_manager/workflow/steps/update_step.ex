@@ -10,29 +10,30 @@ defmodule PortfolioManager.Workflow.Steps.UpdateStep do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
     portfolio = Keyword.get(opts, :portfolio)
+    dispatch_action(action, portfolio, inputs, context)
+  end
 
-    case action do
-      "update_context" ->
-        update_context(portfolio, inputs, context)
+  defp dispatch_action("update_context", portfolio, inputs, context) do
+    update_context(portfolio, inputs, context)
+  end
 
-      "add_relationship" ->
-        add_relationship(portfolio, inputs, context)
+  defp dispatch_action("add_relationship", portfolio, inputs, context) do
+    add_relationship(portfolio, inputs, context)
+  end
 
-      "create_decision" ->
-        create_decision(portfolio, inputs, context)
+  defp dispatch_action("create_decision", portfolio, inputs, context) do
+    create_decision(portfolio, inputs, context)
+  end
 
-      _ ->
-        {:error, "Unknown update action: #{action}"}
-    end
+  defp dispatch_action(action, _portfolio, _inputs, _context) do
+    {:error, "Unknown update action: #{action}"}
   end
 
   defp update_context(nil, _inputs, _context), do: {:error, "Portfolio not available"}
 
   defp update_context(portfolio, inputs, context) do
-    repo_id =
-      Map.get(inputs, "repo_id") || Map.get(inputs, :repo_id) || (context.repo && context.repo.id)
-
-    updates = Map.get(inputs, "updates") || Map.get(inputs, :updates) || %{}
+    repo_id = get_input(inputs, "repo_id") || (context.repo && context.repo.id)
+    updates = get_input(inputs, "updates") || %{}
 
     case PortfolioManager.update_context(portfolio, repo_id, updates) do
       {:ok, _} -> {:ok, context, %{repo_id: repo_id, updates: updates}}
@@ -43,10 +44,10 @@ defmodule PortfolioManager.Workflow.Steps.UpdateStep do
   defp add_relationship(nil, _inputs, _context), do: {:error, "Portfolio not available"}
 
   defp add_relationship(portfolio, inputs, context) do
-    rel = Map.get(inputs, "relationship") || Map.get(inputs, :relationship) || %{}
-    from = Map.get(rel, "from") || Map.get(rel, :from) || (context.repo && context.repo.id)
-    to = Map.get(rel, "to") || Map.get(rel, :to)
-    type = Map.get(rel, "type") || Map.get(rel, :type) || "related_to"
+    rel = get_input(inputs, "relationship") || %{}
+    from = get_rel_field(rel, "from") || (context.repo && context.repo.id)
+    to = get_rel_field(rel, "to")
+    type = get_rel_field(rel, "type") || "related_to"
 
     case PortfolioManager.add_relationship(portfolio, from, to, String.to_atom(type)) do
       {:ok, _} -> {:ok, context, %{from: from, to: to, type: type}}
@@ -57,16 +58,17 @@ defmodule PortfolioManager.Workflow.Steps.UpdateStep do
   defp create_decision(nil, _inputs, _context), do: {:error, "Portfolio not available"}
 
   defp create_decision(portfolio, inputs, context) do
-    repo_id =
-      Map.get(inputs, "repo_id") || Map.get(inputs, :repo_id) || (context.repo && context.repo.id)
-
-    decision = Map.get(inputs, "decision") || Map.get(inputs, :decision) || %{}
-    title = Map.get(decision, "title") || Map.get(decision, :title) || "Decision"
-    content = Map.get(decision, "content") || Map.get(decision, :content) || ""
+    repo_id = get_input(inputs, "repo_id") || (context.repo && context.repo.id)
+    decision = get_input(inputs, "decision") || %{}
+    title = get_rel_field(decision, "title") || "Decision"
+    content = get_rel_field(decision, "content") || ""
 
     case PortfolioManager.add_decision(portfolio, repo_id, title, content) do
       {:ok, _} -> {:ok, context, %{repo_id: repo_id, title: title}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
+  defp get_rel_field(map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 end

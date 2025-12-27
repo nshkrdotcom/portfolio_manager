@@ -5,7 +5,7 @@ defmodule PortfolioManager.Domain.Registry do
   The registry is the central catalog of all tracked repositories.
   """
 
-  alias PortfolioManager.Domain.{Repo, Relationship}
+  alias PortfolioManager.Domain.{Relationship, Repo}
 
   @type t :: %__MODULE__{
           repos: %{String.t() => Repo.t()},

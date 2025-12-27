@@ -26,9 +26,8 @@ defmodule PortfolioManager.Views do
     with :ok <- generate_by_status(portfolio, repos),
          :ok <- generate_by_type(portfolio, repos),
          :ok <- generate_by_language(portfolio, repos),
-         :ok <- generate_stale_repos(portfolio, repos, opts),
-         :ok <- generate_port_status(portfolio, repos) do
-      :ok
+         :ok <- generate_stale_repos(portfolio, repos, opts) do
+      generate_port_status(portfolio, repos)
     end
   end
 
@@ -137,51 +136,8 @@ defmodule PortfolioManager.Views do
 
     stale_repos =
       repos
-      |> Enum.filter(fn repo ->
-        computed = load_computed(portfolio, repo)
-        commit_count = get_computed_value(computed, "commit_count_30d")
-        last_commit_date = get_last_commit_date(repo, computed)
-        days_since_commit = days_since(last_commit_date)
-
-        cond do
-          repo.status == :stale ->
-            true
-
-          repo.status == :active and commit_count == 0 ->
-            true
-
-          is_nil(commit_count) and is_integer(days_since_commit) ->
-            days_since_commit >= stale_days
-
-          true ->
-            false
-        end
-      end)
-      |> Enum.map(fn repo ->
-        computed = load_computed(portfolio, repo)
-        last_commit_date = get_last_commit_date(repo, computed)
-        days = days_since(last_commit_date) || 0
-        notes = note_snippet(portfolio, repo.id)
-
-        base = %{
-          "id" => repo.id,
-          "status" => to_string(repo.status),
-          "days_since_commit" => days,
-          "last_commit" => last_commit_date && DateTime.to_iso8601(last_commit_date),
-          "recommendation" =>
-            cond do
-              days >= 180 -> "Consider archiving"
-              days >= 90 -> "Mark as stale or maintenance"
-              true -> "Review activity"
-            end
-        }
-
-        if notes do
-          Map.put(base, "notes", notes)
-        else
-          base
-        end
-      end)
+      |> Enum.filter(&repo_is_stale?(&1, portfolio, stale_days))
+      |> Enum.map(&build_stale_repo_entry(&1, portfolio))
       |> Enum.sort_by(& &1["days_since_commit"], :desc)
 
     data = %{
@@ -198,6 +154,55 @@ defmodule PortfolioManager.Views do
     write_view(portfolio, "stale-repos.yml", data)
   end
 
+  defp repo_is_stale?(repo, portfolio, stale_days) do
+    computed = load_computed(portfolio, repo)
+    commit_count = get_computed_value(computed, "commit_count_30d")
+    last_commit_date = get_last_commit_date(repo, computed)
+    days_since_commit = days_since(last_commit_date)
+
+    check_stale_conditions(repo, commit_count, days_since_commit, stale_days)
+  end
+
+  defp check_stale_conditions(repo, _commit_count, _days_since_commit, _stale_days)
+       when repo.status == :stale,
+       do: true
+
+  defp check_stale_conditions(repo, commit_count, _days_since_commit, _stale_days)
+       when repo.status == :active and commit_count == 0,
+       do: true
+
+  defp check_stale_conditions(_repo, nil, days_since_commit, stale_days)
+       when is_integer(days_since_commit),
+       do: days_since_commit >= stale_days
+
+  defp check_stale_conditions(_repo, _commit_count, _days_since_commit, _stale_days), do: false
+
+  defp build_stale_repo_entry(repo, portfolio) do
+    computed = load_computed(portfolio, repo)
+    last_commit_date = get_last_commit_date(repo, computed)
+    days = days_since(last_commit_date) || 0
+    notes = note_snippet(portfolio, repo.id)
+
+    %{
+      "id" => repo.id,
+      "status" => to_string(repo.status),
+      "days_since_commit" => days,
+      "last_commit" => format_commit_date(last_commit_date),
+      "recommendation" => stale_recommendation(days)
+    }
+    |> maybe_add_notes(notes)
+  end
+
+  defp format_commit_date(nil), do: nil
+  defp format_commit_date(date), do: DateTime.to_iso8601(date)
+
+  defp stale_recommendation(days) when days >= 180, do: "Consider archiving"
+  defp stale_recommendation(days) when days >= 90, do: "Mark as stale or maintenance"
+  defp stale_recommendation(_days), do: "Review activity"
+
+  defp maybe_add_notes(entry, nil), do: entry
+  defp maybe_add_notes(entry, notes), do: Map.put(entry, "notes", notes)
+
   @doc """
   Generates view of port repositories status.
   """
@@ -206,60 +211,82 @@ defmodule PortfolioManager.Views do
     port_repos =
       repos
       |> Enum.filter(&(&1.type == :port))
-      |> Enum.map(fn repo ->
-        port_info = repo.port || %{}
+      |> Enum.map(&build_port_entry/1)
 
-        upstream =
-          Map.get(port_info, :upstream_url) ||
-            Map.get(port_info, "upstream_url") ||
-            Map.get(port_info, :upstream) ||
-            Map.get(port_info, "upstream") ||
-            "unknown"
+    data = %{
+      "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "query" => "type == port",
+      "results" => port_repos,
+      "summary" => build_port_summary(port_repos)
+    }
 
-        upstream_version =
-          Map.get(port_info, :upstream_version) ||
-            Map.get(port_info, "upstream_version") ||
-            get_in(port_info, [:sync, :last_tag]) ||
-            get_in(port_info, ["sync", "last_tag"]) ||
-            "unknown"
+    write_view(portfolio, "port-status.yml", data)
+  end
 
-        synced_version =
-          Map.get(port_info, :synced_version) ||
-            Map.get(port_info, "synced_version") ||
-            get_in(port_info, [:sync, :last_tag]) ||
-            get_in(port_info, ["sync", "last_tag"]) ||
-            "unknown"
+  defp build_port_entry(repo) do
+    port_info = repo.port || %{}
+    commits_behind = extract_commits_behind(port_info)
 
-        commits_behind =
-          get_in(port_info, [:upstream_status, :commits_behind]) ||
-            get_in(port_info, ["upstream_status", "commits_behind"]) ||
-            Map.get(port_info, :commits_behind) ||
-            Map.get(port_info, "commits_behind")
+    %{
+      "id" => repo.id,
+      "upstream" => extract_upstream(port_info) |> to_string(),
+      "upstream_version" => extract_upstream_version(port_info) |> to_string(),
+      "synced_version" => extract_synced_version(port_info) |> to_string(),
+      "commits_behind" => commits_behind,
+      "status" => port_sync_status(commits_behind),
+      "affected_modules" => extract_affected_modules(port_info)
+    }
+  end
 
-        commits_behind = normalize_integer(commits_behind)
+  defp extract_upstream(port_info) do
+    get_port_field(port_info, [:upstream_url, :upstream], "unknown")
+  end
 
-        status =
-          cond do
-            is_integer(commits_behind) and commits_behind > 0 -> "needs_sync"
-            is_integer(commits_behind) and commits_behind == 0 -> "up_to_date"
-            true -> "unknown"
-          end
+  defp extract_upstream_version(port_info) do
+    get_port_field(port_info, [:upstream_version], nil) ||
+      get_nested_port_field(port_info, :sync, :last_tag) ||
+      "unknown"
+  end
 
-        %{
-          "id" => repo.id,
-          "upstream" => to_string(upstream),
-          "upstream_version" => to_string(upstream_version),
-          "synced_version" => to_string(synced_version),
-          "commits_behind" => commits_behind,
-          "status" => status,
-          "affected_modules" =>
-            get_in(port_info, [:upstream_status, :affected_modules]) ||
-              get_in(port_info, ["upstream_status", "affected_modules"]) ||
-              get_in(port_info, [:sync, :affected_modules]) ||
-              get_in(port_info, ["sync", "affected_modules"])
-        }
-      end)
+  defp extract_synced_version(port_info) do
+    get_port_field(port_info, [:synced_version], nil) ||
+      get_nested_port_field(port_info, :sync, :last_tag) ||
+      "unknown"
+  end
 
+  defp extract_commits_behind(port_info) do
+    value =
+      get_nested_port_field(port_info, :upstream_status, :commits_behind) ||
+        get_port_field(port_info, [:commits_behind], nil)
+
+    normalize_integer(value)
+  end
+
+  defp extract_affected_modules(port_info) do
+    get_nested_port_field(port_info, :upstream_status, :affected_modules) ||
+      get_nested_port_field(port_info, :sync, :affected_modules)
+  end
+
+  defp get_port_field(port_info, keys, default) do
+    Enum.find_value(keys, default, fn key ->
+      Map.get(port_info, key) || Map.get(port_info, to_string(key))
+    end)
+  end
+
+  defp get_nested_port_field(port_info, outer_key, inner_key) do
+    get_in(port_info, [outer_key, inner_key]) ||
+      get_in(port_info, [to_string(outer_key), to_string(inner_key)])
+  end
+
+  defp port_sync_status(commits_behind) when is_integer(commits_behind) and commits_behind > 0,
+    do: "needs_sync"
+
+  defp port_sync_status(commits_behind) when is_integer(commits_behind) and commits_behind == 0,
+    do: "up_to_date"
+
+  defp port_sync_status(_), do: "unknown"
+
+  defp build_port_summary(port_repos) do
     summary_counts =
       port_repos
       |> Enum.group_by(& &1["status"])
@@ -271,19 +298,12 @@ defmodule PortfolioManager.Views do
       |> Enum.filter(&is_integer/1)
       |> Enum.sum()
 
-    data = %{
-      "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
-      "query" => "type == port",
-      "results" => port_repos,
-      "summary" => %{
-        "total_ports" => length(port_repos),
-        "up_to_date" => Map.get(summary_counts, "up_to_date", 0),
-        "needs_sync" => Map.get(summary_counts, "needs_sync", 0),
-        "total_commits_behind" => total_commits_behind
-      }
+    %{
+      "total_ports" => length(port_repos),
+      "up_to_date" => Map.get(summary_counts, "up_to_date", 0),
+      "needs_sync" => Map.get(summary_counts, "needs_sync", 0),
+      "total_commits_behind" => total_commits_behind
     }
-
-    write_view(portfolio, "port-status.yml", data)
   end
 
   # Private helpers
@@ -316,58 +336,51 @@ defmodule PortfolioManager.Views do
     end
   end
 
+  defp do_yaml_encode([], _indent), do: "[]\n"
+
   defp do_yaml_encode(list, indent) when is_list(list) do
-    if list == [] do
-      "[]\n"
-    else
-      spaces = String.duplicate(" ", indent)
+    spaces = String.duplicate(" ", indent)
 
-      list
-      |> Enum.map(fn item ->
-        item_str = do_yaml_encode(item, indent + 2) |> String.trim_trailing("\n")
-
-        if is_map(item) do
-          [first | rest] = String.split(item_str, "\n")
-          first_line = "#{spaces}- #{first}"
-
-          rest_lines =
-            Enum.map(rest, fn line ->
-              "#{spaces}  #{line}"
-            end)
-
-          Enum.join([first_line | rest_lines], "\n")
-        else
-          "#{spaces}- #{item_str}"
-        end
-      end)
-      |> Enum.join("\n")
-      |> Kernel.<>("\n")
-    end
+    list
+    |> Enum.map_join("\n", &encode_list_item(&1, spaces, indent))
+    |> Kernel.<>("\n")
   end
 
+  defp do_yaml_encode(%{} = map, _indent) when map == %{}, do: "{}\n"
+
   defp do_yaml_encode(map, indent) when is_map(map) do
-    if map == %{} do
-      "{}\n"
-    else
-      spaces = String.duplicate(" ", indent)
+    spaces = String.duplicate(" ", indent)
 
-      map
-      |> Enum.sort_by(fn {k, _} -> k end)
-      |> Enum.map(fn {k, v} ->
-        key = to_string(k)
+    map
+    |> Enum.sort_by(fn {k, _} -> k end)
+    |> Enum.map_join(&encode_kv_pair(&1, spaces, indent))
+  end
 
-        cond do
-          is_map(v) and map_size(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+  defp encode_list_item(item, spaces, indent) when is_map(item) do
+    item_str = do_yaml_encode(item, indent + 2) |> String.trim_trailing("\n")
+    [first | rest] = String.split(item_str, "\n")
+    first_line = "#{spaces}- #{first}"
+    rest_lines = Enum.map(rest, &"#{spaces}  #{&1}")
+    Enum.join([first_line | rest_lines], "\n")
+  end
 
-          is_list(v) and length(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+  defp encode_list_item(item, spaces, indent) do
+    item_str = do_yaml_encode(item, indent + 2) |> String.trim_trailing("\n")
+    "#{spaces}- #{item_str}"
+  end
 
-          true ->
-            "#{spaces}#{key}: #{do_yaml_encode(v, indent) |> String.trim_leading()}"
-        end
-      end)
-      |> Enum.join("")
+  defp encode_kv_pair({k, v}, spaces, indent) do
+    key = to_string(k)
+
+    cond do
+      is_map(v) and map_size(v) > 0 ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+
+      is_list(v) and v != [] ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+
+      true ->
+        "#{spaces}#{key}: #{do_yaml_encode(v, indent) |> String.trim_leading()}"
     end
   end
 

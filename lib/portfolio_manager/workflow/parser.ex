@@ -45,23 +45,22 @@ defmodule PortfolioManager.Workflow.Parser do
   """
   @spec normalize_step(map(), non_neg_integer() | nil) :: map()
   def normalize_step(data, idx \\ nil) when is_map(data) do
-    id = Map.get(data, "id") || Map.get(data, :id) || default_step_id(idx)
-    name = Map.get(data, "name") || Map.get(data, :name) || id
-    type = Map.get(data, "type") || Map.get(data, :type)
-    action = Map.get(data, "action") || Map.get(data, :action)
+    id = get_field(data, "id") || default_step_id(idx)
 
     %{
       id: id,
-      name: name,
-      type: normalize_type(type),
-      action: action,
-      provider: Map.get(data, "provider") || Map.get(data, :provider),
-      inputs: Map.get(data, "inputs") || Map.get(data, :inputs) || %{},
-      outputs: Map.get(data, "outputs") || Map.get(data, :outputs) || %{},
-      on_failure: Map.get(data, "on_failure") || Map.get(data, :on_failure) || "stop",
-      timeout: Map.get(data, "timeout") || Map.get(data, :timeout) || 60_000
+      name: get_field(data, "name") || id,
+      type: normalize_type(get_field(data, "type")),
+      action: get_field(data, "action"),
+      provider: get_field(data, "provider"),
+      inputs: get_field(data, "inputs") || %{},
+      outputs: get_field(data, "outputs") || %{},
+      on_failure: get_field(data, "on_failure") || "stop",
+      timeout: get_field(data, "timeout") || 60_000
     }
   end
+
+  defp get_field(data, key), do: Map.get(data, key) || Map.get(data, String.to_atom(key))
 
   # Private
 

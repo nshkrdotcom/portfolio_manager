@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Portfolio.Run do
 
   use Mix.Task
 
-  alias PortfolioManager.Workflow.Engine
   alias PortfolioManager.CLI.Exit
+  alias PortfolioManager.Workflow.Engine
 
   @impl Mix.Task
   def run(args) do
@@ -65,7 +65,7 @@ defmodule Mix.Tasks.Portfolio.Run do
       opts[:list] ->
         list_workflows(opts)
 
-      length(args) >= 1 ->
+      args != [] ->
         run_workflow(List.first(args), opts)
 
       true ->
@@ -97,72 +97,81 @@ defmodule Mix.Tasks.Portfolio.Run do
   end
 
   defp format_workflows(workflows) do
-    workflows
-    |> Enum.map(fn wf ->
+    Enum.map_join(workflows, "\n", fn wf ->
       name = String.pad_trailing(wf.name, 20)
       "  #{name} #{wf.description}"
     end)
-    |> Enum.join("\n")
   end
 
   defp run_workflow(workflow_name, opts) do
     portfolio_path = opts[:portfolio_dir] || default_portfolio_path()
 
     case PortfolioManager.init(portfolio_path) do
-      {:ok, portfolio} ->
-        if opts[:verbose] do
-          Mix.shell().info(
-            "#{IO.ANSI.cyan()}Running workflow: #{workflow_name}#{IO.ANSI.reset()}"
-          )
-
-          if opts[:repo] do
-            Mix.shell().info("Target repo: #{opts[:repo]}")
-          end
-
-          if opts[:dry_run] do
-            Mix.shell().info("#{IO.ANSI.yellow()}(dry run)#{IO.ANSI.reset()}")
-          end
-
-          Mix.shell().info("")
-        end
-
-        inputs = if opts[:repo], do: %{"repo_id" => opts[:repo]}, else: %{}
-
-        engine_opts = [
-          portfolio: portfolio,
-          inputs: inputs,
-          dry_run: opts[:dry_run] || false,
-          verbose: opts[:verbose] || false
-        ]
-
-        case Engine.run(workflow_name, engine_opts) do
-          {:ok, result} ->
-            if opts[:json] do
-              Mix.shell().info(Jason.encode!(result, pretty: true))
-            else
-              output_result(workflow_name, result, opts)
-            end
-
-          {:error, :not_found} ->
-            Mix.shell().error("Workflow '#{workflow_name}' not found")
-            Mix.shell().info("")
-            Mix.shell().info("Run `mix portfolio.run --list` to see available workflows")
-            Exit.halt(:invalid_args)
-
-          {:error, reason} ->
-            Mix.shell().error("Workflow failed: #{inspect(reason)}")
-            Exit.halt(:error)
-        end
-
-      {:error, :not_initialized} ->
-        Mix.shell().error("""
-        Portfolio not found at #{portfolio_path}
-        Run `mix portfolio.init` first.
-        """)
-
-        Exit.halt(:config)
+      {:ok, portfolio} -> execute_workflow(portfolio, workflow_name, opts)
+      {:error, :not_initialized} -> handle_not_initialized(portfolio_path)
     end
   end
+
+  defp execute_workflow(portfolio, workflow_name, opts) do
+    print_verbose_header(workflow_name, opts)
+    engine_opts = build_engine_opts(portfolio, opts)
+
+    Engine.run(workflow_name, engine_opts)
+    |> handle_workflow_result(workflow_name, opts)
+  end
+
+  defp print_verbose_header(workflow_name, opts) do
+    if opts[:verbose] do
+      Mix.shell().info("#{IO.ANSI.cyan()}Running workflow: #{workflow_name}#{IO.ANSI.reset()}")
+      if opts[:repo], do: Mix.shell().info("Target repo: #{opts[:repo]}")
+      if opts[:dry_run], do: Mix.shell().info("#{IO.ANSI.yellow()}(dry run)#{IO.ANSI.reset()}")
+      Mix.shell().info("")
+    end
+  end
+
+  defp build_engine_opts(portfolio, opts) do
+    inputs = if opts[:repo], do: %{"repo_id" => opts[:repo]}, else: %{}
+
+    [
+      portfolio: portfolio,
+      inputs: inputs,
+      dry_run: opts[:dry_run] || false,
+      verbose: opts[:verbose] || false
+    ]
+  end
+
+  defp handle_not_initialized(portfolio_path) do
+    Mix.shell().error("""
+    Portfolio not found at #{portfolio_path}
+    Run `mix portfolio.init` first.
+    """)
+
+    Exit.halt(:config)
+  end
+
+  defp handle_workflow_result({:ok, result}, workflow_name, opts) do
+    if opts[:json] do
+      Mix.shell().info(Jason.encode!(result, pretty: true))
+    else
+      output_result(workflow_name, result, opts)
+    end
+  end
+
+  defp handle_workflow_result({:error, :not_found}, workflow_name, _opts) do
+    Mix.shell().error("Workflow '#{workflow_name}' not found")
+    Mix.shell().info("")
+    Mix.shell().info("Run `mix portfolio.run --list` to see available workflows")
+    Exit.halt(:invalid_args)
+  end
+
+  defp handle_workflow_result({:error, reason}, _workflow_name, _opts) do
+    Mix.shell().error("Workflow failed: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp format_step_detail(:error, msg) when is_binary(msg), do: " - #{msg}"
+  defp format_step_detail(:skipped, msg) when is_binary(msg), do: " - #{msg}"
+  defp format_step_detail(_status, _detail), do: ""
 
   defp output_result(workflow_name, result, opts) do
     status_icon =
@@ -180,25 +189,20 @@ defmodule Mix.Tasks.Portfolio.Run do
 
     if opts[:verbose] and result.details do
       Mix.shell().info("Details:")
-
-      Enum.each(result.details, fn {step_name, status, detail} ->
-        status_str =
-          case status do
-            :ok -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
-            :skipped -> "#{IO.ANSI.yellow()}○#{IO.ANSI.reset()}"
-            :error -> "#{IO.ANSI.red()}✗#{IO.ANSI.reset()}"
-          end
-
-        detail_str =
-          case {status, detail} do
-            {:error, msg} when is_binary(msg) -> " - #{msg}"
-            {:skipped, msg} when is_binary(msg) -> " - #{msg}"
-            _ -> ""
-          end
-
-        Mix.shell().info("  #{status_str} #{step_name}#{detail_str}")
-      end)
+      Enum.each(result.details, &print_step_detail/1)
     end
+  end
+
+  defp print_step_detail({step_name, status, detail}) do
+    status_str =
+      case status do
+        :ok -> "#{IO.ANSI.green()}✓#{IO.ANSI.reset()}"
+        :skipped -> "#{IO.ANSI.yellow()}○#{IO.ANSI.reset()}"
+        :error -> "#{IO.ANSI.red()}✗#{IO.ANSI.reset()}"
+      end
+
+    detail_str = format_step_detail(status, detail)
+    Mix.shell().info("  #{status_str} #{step_name}#{detail_str}")
   end
 
   defp show_help do

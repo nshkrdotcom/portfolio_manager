@@ -1,7 +1,7 @@
 defmodule PortfolioManager.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.1.1"
   @source_url "https://github.com/nshkrdotcom/portfolio_manager"
 
   def project do
@@ -57,7 +57,12 @@ defmodule PortfolioManager.MixProject do
       {:jason, "~> 1.4"},
 
       # RAG (Retrieval-Augmented Generation)
-      {:rag, "~> 0.3.3", hex: :rag_ex},
+      {:rag, "~> 0.3.4", hex: :rag_ex},
+
+      # Vector store (pgvector)
+      {:ecto_sql, "~> 3.0"},
+      {:postgrex, "~> 0.17"},
+      {:pgvector, "~> 0.3.0"},
 
       # File watching (optional)
       {:file_system, "~> 1.0", optional: true},
@@ -74,6 +79,7 @@ defmodule PortfolioManager.MixProject do
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
 
       # Static analysis
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end

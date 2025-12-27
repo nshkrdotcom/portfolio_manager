@@ -5,7 +5,7 @@ defmodule PortfolioManager.Workflow.Engine do
   Executes multi-step workflows defined in YAML files.
   """
 
-  alias PortfolioManager.Workflow.{Parser, Context, Step}
+  alias PortfolioManager.Workflow.{Context, Parser, Step}
 
   @doc """
   Executes a workflow by name.
@@ -67,43 +67,50 @@ defmodule PortfolioManager.Workflow.Engine do
 
   defp build_context(workflow, opts) do
     portfolio = Keyword.get(opts, :portfolio)
+    inputs = prepare_inputs(workflow, opts)
+    base_context = build_base_context(workflow.id, inputs, portfolio)
+
+    base_context
+    |> maybe_add_repo_context(portfolio, Map.get(inputs, "repo_id"))
+    |> finalize_context()
+  end
+
+  defp prepare_inputs(workflow, opts) do
     inputs = normalize_inputs(Keyword.get(opts, :inputs, %{}))
     repo_id = Keyword.get(opts, :repo_id) || Map.get(inputs, "repo_id")
     inputs = if repo_id, do: Map.put_new(inputs, "repo_id", repo_id), else: inputs
-    inputs = apply_input_defaults(inputs, workflow.inputs || %{})
+    apply_input_defaults(inputs, workflow.inputs || %{})
+  end
 
-    base_vars = %{
-      "now" => DateTime.to_iso8601(DateTime.utc_now()),
-      "portfolio_path" =>
-        portfolio && PortfolioManager.Portfolio.get_storage_state(portfolio).path
-    }
-
-    base_context = %{
-      workflow: workflow.id,
+  defp build_base_context(workflow_id, inputs, portfolio) do
+    %{
+      workflow: workflow_id,
       started_at: DateTime.utc_now(),
       inputs: inputs,
-      vars: base_vars
+      vars: %{
+        "now" => DateTime.to_iso8601(DateTime.utc_now()),
+        "portfolio_path" =>
+          portfolio && PortfolioManager.Portfolio.get_storage_state(portfolio).path
+      }
     }
+  end
 
-    context =
-      if repo_id && portfolio do
-        case PortfolioManager.get_repo(portfolio, repo_id) do
-          {:ok, repo} ->
-            {:ok, ctx} = PortfolioManager.get_context(portfolio, repo_id)
-            Map.merge(base_context, %{repo: repo, context: ctx})
+  defp maybe_add_repo_context(base_context, nil, _repo_id), do: base_context
+  defp maybe_add_repo_context(base_context, _portfolio, nil), do: base_context
 
-          {:error, _} = error ->
-            error
-        end
-      else
-        base_context
-      end
+  defp maybe_add_repo_context(base_context, portfolio, repo_id) do
+    case PortfolioManager.get_repo(portfolio, repo_id) do
+      {:ok, repo} ->
+        {:ok, ctx} = PortfolioManager.get_context(portfolio, repo_id)
+        Map.merge(base_context, %{repo: repo, context: ctx})
 
-    case context do
-      %{} = ctx -> {:ok, Context.new(ctx)}
-      {:error, _} = error -> error
+      {:error, _} = error ->
+        error
     end
   end
+
+  defp finalize_context(%{} = ctx), do: {:ok, Context.new(ctx)}
+  defp finalize_context({:error, _} = error), do: error
 
   defp execute_workflow(workflow, context, opts) do
     dry_run = Keyword.get(opts, :dry_run, false)
@@ -119,61 +126,11 @@ defmodule PortfolioManager.Workflow.Engine do
 
     result =
       Enum.reduce_while(workflow.steps, {context, initial_state}, fn step, {ctx, state} ->
-        if verbose do
-          IO.puts("  → #{step.name}")
-        end
-
-        if dry_run do
-          if verbose do
-            IO.puts("    (dry run)")
-          end
-
-          {:cont, {ctx, %{state | completed: state.completed + 1}}}
-        else
-          case Step.execute(step, ctx, opts) do
-            {:ok, new_ctx, result} ->
-              updated_ctx =
-                new_ctx
-                |> Context.set_result(step.id, result)
-                |> apply_outputs(step.id, step.outputs, result)
-
-              new_state = %{
-                state
-                | completed: state.completed + 1,
-                  results: state.results ++ [{step.name, :ok, result}]
-              }
-
-              {:cont, {updated_ctx, new_state}}
-
-            {:skip, reason} ->
-              new_state = %{
-                state
-                | skipped: state.skipped + 1,
-                  results: state.results ++ [{step.name, :skipped, reason}]
-              }
-
-              {:cont, {ctx, new_state}}
-
-            {:error, reason} ->
-              continue? = step.on_failure in ["continue", :continue]
-
-              new_state = %{
-                state
-                | failed: state.failed + 1,
-                  results: state.results ++ [{step.name, :error, reason}]
-              }
-
-              if continue? do
-                {:cont, {ctx, new_state}}
-              else
-                {:halt, {ctx, new_state}}
-              end
-          end
-        end
+        if verbose, do: IO.puts("  → #{step.name}")
+        execute_step(step, ctx, state, dry_run, verbose, opts)
       end)
 
     {final_ctx, final_state} = result
-
     outputs = extract_outputs(workflow.outputs || %{}, final_ctx)
 
     {:ok,
@@ -181,6 +138,61 @@ defmodule PortfolioManager.Workflow.Engine do
      |> Map.delete(:results)
      |> Map.put(:details, final_state.results)
      |> Map.put(:outputs, outputs)}
+  end
+
+  defp execute_step(_step, ctx, state, true, verbose, _opts) do
+    if verbose, do: IO.puts("    (dry run)")
+    {:cont, {ctx, %{state | completed: state.completed + 1}}}
+  end
+
+  defp execute_step(step, ctx, state, false, _verbose, opts) do
+    case Step.execute(step, ctx, opts) do
+      {:ok, new_ctx, result} ->
+        handle_step_success(step, new_ctx, state, result)
+
+      {:skip, reason} ->
+        handle_step_skip(step, ctx, state, reason)
+
+      {:error, reason} ->
+        handle_step_error(step, ctx, state, reason)
+    end
+  end
+
+  defp handle_step_success(step, new_ctx, state, result) do
+    updated_ctx =
+      new_ctx
+      |> Context.set_result(step.id, result)
+      |> apply_outputs(step.id, step.outputs, result)
+
+    new_state = %{
+      state
+      | completed: state.completed + 1,
+        results: state.results ++ [{step.name, :ok, result}]
+    }
+
+    {:cont, {updated_ctx, new_state}}
+  end
+
+  defp handle_step_skip(step, ctx, state, reason) do
+    new_state = %{
+      state
+      | skipped: state.skipped + 1,
+        results: state.results ++ [{step.name, :skipped, reason}]
+    }
+
+    {:cont, {ctx, new_state}}
+  end
+
+  defp handle_step_error(step, ctx, state, reason) do
+    continue? = step.on_failure in ["continue", :continue]
+
+    new_state = %{
+      state
+      | failed: state.failed + 1,
+        results: state.results ++ [{step.name, :error, reason}]
+    }
+
+    if continue?, do: {:cont, {ctx, new_state}}, else: {:halt, {ctx, new_state}}
   end
 
   defp apply_outputs(ctx, step_id, outputs, result) do
@@ -263,15 +275,14 @@ defmodule PortfolioManager.Workflow.Engine do
   defp apply_input_defaults(inputs, definitions) when is_map(definitions) do
     Enum.reduce(definitions, inputs, fn {key, defn}, acc ->
       key = to_string(key)
-
-      if Map.has_key?(acc, key) do
-        acc
-      else
-        case Map.get(defn, "default") || Map.get(defn, :default) do
-          nil -> acc
-          default -> Map.put(acc, key, default)
-        end
-      end
+      if Map.has_key?(acc, key), do: acc, else: maybe_apply_default(acc, key, defn)
     end)
+  end
+
+  defp maybe_apply_default(inputs, key, defn) do
+    case Map.get(defn, "default") || Map.get(defn, :default) do
+      nil -> inputs
+      default -> Map.put(inputs, key, default)
+    end
   end
 end

@@ -25,6 +25,29 @@ defmodule PortfolioManager.Adapters.FileDetector do
     "pubspec.yaml" => :dart
   }
 
+  @elixir_frameworks [
+    {":phoenix", "phoenix"},
+    {":nerves", "nerves"},
+    {":absinthe", "absinthe"},
+    {":scenic", "scenic"},
+    {":livebook", "livebook"},
+    {":ash", "ash"},
+    {":commanded", "commanded"}
+  ]
+
+  @js_frameworks [
+    {"\"next\"", "next"},
+    {"\"@remix-run/", "remix"},
+    {"\"nuxt\"", "nuxt"},
+    {"\"@angular/core\"", "angular"},
+    {"\"react\"", "react"},
+    {"\"vue\"", "vue"},
+    {"\"svelte\"", "svelte"},
+    {"\"express\"", "express"},
+    {"\"fastify\"", "fastify"},
+    {"\"koa\"", "koa"}
+  ]
+
   @impl true
   def detect(path) do
     expanded = Path.expand(path)
@@ -46,34 +69,38 @@ defmodule PortfolioManager.Adapters.FileDetector do
   @impl true
   def detect_language(path) do
     expanded = Path.expand(path)
-
-    language =
-      @language_indicators
-      |> Enum.find_value(fn {file_pattern, lang} ->
-        if String.contains?(file_pattern, "*") do
-          pattern = String.replace(file_pattern, "*", "")
-
-          case File.ls(expanded) do
-            {:ok, files} ->
-              if Enum.any?(files, &String.ends_with?(&1, pattern)), do: lang
-
-            _ ->
-              nil
-          end
-        else
-          if File.exists?(Path.join(expanded, file_pattern)), do: lang
-        end
-      end)
-
+    language = find_language_from_indicators(expanded)
     {:ok, language || :unknown}
+  end
+
+  defp find_language_from_indicators(expanded) do
+    Enum.find_value(@language_indicators, fn {file_pattern, lang} ->
+      check_language_indicator(expanded, file_pattern, lang)
+    end)
+  end
+
+  defp check_language_indicator(expanded, file_pattern, lang) do
+    if String.contains?(file_pattern, "*") do
+      check_wildcard_pattern(expanded, file_pattern, lang)
+    else
+      if File.exists?(Path.join(expanded, file_pattern)), do: lang
+    end
+  end
+
+  defp check_wildcard_pattern(expanded, file_pattern, lang) do
+    pattern = String.replace(file_pattern, "*", "")
+
+    case File.ls(expanded) do
+      {:ok, files} -> if Enum.any?(files, &String.ends_with?(&1, pattern)), do: lang
+      _ -> nil
+    end
   end
 
   @impl true
   def detect_type(path) do
     expanded = Path.expand(path)
 
-    # Check for port indicators first
-    if is_port?(expanded) do
+    if port?(expanded) do
       {:ok, :port}
     else
       type = detect_type_from_files(expanded)
@@ -82,96 +109,100 @@ defmodule PortfolioManager.Adapters.FileDetector do
   end
 
   defp detect_type_from_files(path) do
-    # Check Elixir library
+    detect_elixir_type(path) ||
+      detect_python_type(path) ||
+      detect_javascript_type(path) ||
+      detect_rust_type(path)
+  end
+
+  defp detect_elixir_type(path) do
     mix_path = Path.join(path, "mix.exs")
 
-    if File.exists?(mix_path) do
-      case File.read(mix_path) do
-        {:ok, content} ->
-          # Check for mix project with app and version
-          if Regex.match?(~r/def project/s, content) and
-               Regex.match?(~r/app:/, content) do
-            return_if_no_app(path, :library)
-          else
-            nil
-          end
-
-        _ ->
-          nil
-      end
+    with true <- File.exists?(mix_path),
+         {:ok, content} <- File.read(mix_path),
+         true <- mix_project?(content) do
+      return_if_no_app(path, :library)
     else
-      # Check Python
-      setup_path = Path.join(path, "setup.py")
+      _ -> nil
+    end
+  end
 
-      if File.exists?(setup_path) do
-        case File.read(setup_path) do
-          {:ok, content} ->
-            if Regex.match?(~r/packages=find_packages/, content), do: :library
+  defp mix_project?(content) do
+    Regex.match?(~r/def project/s, content) and Regex.match?(~r/app:/, content)
+  end
 
-          _ ->
-            nil
-        end
-      else
-        # Check JavaScript
-        pkg_path = Path.join(path, "package.json")
+  defp detect_python_type(path) do
+    setup_path = Path.join(path, "setup.py")
 
-        if File.exists?(pkg_path) do
-          case File.read(pkg_path) do
-            {:ok, content} ->
-              cond do
-                Regex.match?(~r/"bin":/, content) -> :application
-                Regex.match?(~r/"main":/, content) -> :library
-                true -> nil
-              end
+    with true <- File.exists?(setup_path),
+         {:ok, content} <- File.read(setup_path),
+         true <- Regex.match?(~r/packages=find_packages/, content) do
+      :library
+    else
+      _ -> nil
+    end
+  end
 
-            _ ->
-              nil
-          end
-        else
-          # Check Rust
-          cargo_path = Path.join(path, "Cargo.toml")
+  defp detect_javascript_type(path) do
+    pkg_path = Path.join(path, "package.json")
 
-          if File.exists?(cargo_path) do
-            case File.read(cargo_path) do
-              {:ok, content} ->
-                cond do
-                  Regex.match?(~r/\[\[bin\]\]/, content) -> :application
-                  Regex.match?(~r/\[lib\]/, content) -> :library
-                  true -> nil
-                end
+    with true <- File.exists?(pkg_path),
+         {:ok, content} <- File.read(pkg_path) do
+      classify_js_type(content)
+    else
+      _ -> nil
+    end
+  end
 
-              _ ->
-                nil
-            end
-          else
-            nil
-          end
-        end
-      end
+  defp classify_js_type(content) do
+    cond do
+      Regex.match?(~r/"bin":/, content) -> :application
+      Regex.match?(~r/"main":/, content) -> :library
+      true -> nil
+    end
+  end
+
+  defp detect_rust_type(path) do
+    cargo_path = Path.join(path, "Cargo.toml")
+
+    with true <- File.exists?(cargo_path),
+         {:ok, content} <- File.read(cargo_path) do
+      classify_rust_type(content)
+    else
+      _ -> nil
+    end
+  end
+
+  defp classify_rust_type(content) do
+    cond do
+      Regex.match?(~r/\[\[bin\]\]/, content) -> :application
+      Regex.match?(~r/\[lib\]/, content) -> :library
+      true -> nil
     end
   end
 
   defp return_if_no_app(path, type) do
-    # Check if this is an application (has application.ex)
     lib_path = Path.join(path, "lib")
 
     if File.dir?(lib_path) do
-      case File.ls(lib_path) do
-        {:ok, dirs} ->
-          has_app =
-            Enum.any?(dirs, fn dir ->
-              app_path = Path.join([lib_path, dir, "application.ex"])
-              File.exists?(app_path)
-            end)
-
-          if has_app, do: :application, else: type
-
-        _ ->
-          type
-      end
+      check_for_application_ex(lib_path, type)
     else
       type
     end
+  end
+
+  defp check_for_application_ex(lib_path, type) do
+    case File.ls(lib_path) do
+      {:ok, dirs} -> if has_application_file?(lib_path, dirs), do: :application, else: type
+      _ -> type
+    end
+  end
+
+  defp has_application_file?(lib_path, dirs) do
+    Enum.any?(dirs, fn dir ->
+      app_path = Path.join([lib_path, dir, "application.ex"])
+      File.exists?(app_path)
+    end)
   end
 
   @impl true
@@ -192,49 +223,32 @@ defmodule PortfolioManager.Adapters.FileDetector do
     {:ok, deps}
   end
 
-  # Private helpers
-
-  defp is_port?(path) do
+  defp port?(path) do
     readme_path = Path.join(path, "README.md")
 
-    if File.exists?(readme_path) do
-      case File.read(readme_path) do
-        {:ok, content} ->
-          content_lower = String.downcase(content)
-
-          Regex.match?(~r/port of|ported from|elixir (port|implementation) of/i, content_lower) or
-            Regex.match?(~r/based on.*\bgithub\.com\b/i, content_lower)
-
-        _ ->
-          false
-      end
+    with true <- File.exists?(readme_path),
+         {:ok, content} <- File.read(readme_path) do
+      port_readme?(content)
     else
-      false
+      _ -> false
     end
+  end
+
+  defp port_readme?(content) do
+    content_lower = String.downcase(content)
+
+    Regex.match?(~r/port of|ported from|elixir (port|implementation) of/i, content_lower) or
+      Regex.match?(~r/based on.*\bgithub\.com\b/i, content_lower)
   end
 
   defp detect_framework(path, :elixir) do
     mix_path = Path.join(path, "mix.exs")
 
-    if File.exists?(mix_path) do
-      case File.read(mix_path) do
-        {:ok, content} ->
-          cond do
-            String.contains?(content, ":phoenix") -> "phoenix"
-            String.contains?(content, ":nerves") -> "nerves"
-            String.contains?(content, ":absinthe") -> "absinthe"
-            String.contains?(content, ":scenic") -> "scenic"
-            String.contains?(content, ":livebook") -> "livebook"
-            String.contains?(content, ":ash") -> "ash"
-            String.contains?(content, ":commanded") -> "commanded"
-            true -> nil
-          end
-
-        _ ->
-          nil
-      end
+    with true <- File.exists?(mix_path),
+         {:ok, content} <- File.read(mix_path) do
+      find_elixir_framework(content)
     else
-      nil
+      _ -> nil
     end
   end
 
@@ -242,6 +256,29 @@ defmodule PortfolioManager.Adapters.FileDetector do
     files = list_files(path)
     deps = detect_python_deps(path) |> flatten_deps()
 
+    find_python_framework(files, deps)
+  end
+
+  defp detect_framework(path, :javascript) do
+    pkg_path = Path.join(path, "package.json")
+
+    with true <- File.exists?(pkg_path),
+         {:ok, content} <- File.read(pkg_path) do
+      find_js_framework(content)
+    else
+      _ -> nil
+    end
+  end
+
+  defp detect_framework(_path, _lang), do: nil
+
+  defp find_elixir_framework(content) do
+    Enum.find_value(@elixir_frameworks, fn {pattern, framework} ->
+      if String.contains?(content, pattern), do: framework
+    end)
+  end
+
+  defp find_python_framework(files, deps) do
     cond do
       "manage.py" in files -> "django"
       "django" in deps -> "django"
@@ -253,58 +290,24 @@ defmodule PortfolioManager.Adapters.FileDetector do
     end
   end
 
-  defp detect_framework(path, :javascript) do
-    pkg_path = Path.join(path, "package.json")
-
-    if File.exists?(pkg_path) do
-      case File.read(pkg_path) do
-        {:ok, content} ->
-          # Priority order: meta-frameworks before base frameworks
-          cond do
-            # Meta-frameworks (take priority)
-            String.contains?(content, "\"next\"") -> "next"
-            String.contains?(content, "\"@remix-run/") -> "remix"
-            String.contains?(content, "\"nuxt\"") -> "nuxt"
-            String.contains?(content, "\"@angular/core\"") -> "angular"
-            # Base frameworks
-            String.contains?(content, "\"react\"") -> "react"
-            String.contains?(content, "\"vue\"") -> "vue"
-            String.contains?(content, "\"svelte\"") -> "svelte"
-            # Backend frameworks
-            String.contains?(content, "\"express\"") -> "express"
-            String.contains?(content, "\"fastify\"") -> "fastify"
-            String.contains?(content, "\"koa\"") -> "koa"
-            true -> nil
-          end
-
-        _ ->
-          nil
-      end
-    else
-      nil
-    end
+  defp find_js_framework(content) do
+    Enum.find_value(@js_frameworks, fn {pattern, framework} ->
+      if String.contains?(content, pattern), do: framework
+    end)
   end
-
-  defp detect_framework(_path, _lang), do: nil
 
   defp detect_elixir_deps(path) do
     mix_path = Path.join(path, "mix.exs")
 
-    if File.exists?(mix_path) do
-      case File.read(mix_path) do
-        {:ok, content} ->
-          sections = extract_mix_deps_sections(content)
-
-          sections
-          |> Enum.reduce(empty_dep_buckets(), fn section, acc ->
-            merge_dep_buckets(acc, parse_mix_deps_section(section))
-          end)
-
-        _ ->
-          empty_dep_buckets()
-      end
+    with true <- File.exists?(mix_path),
+         {:ok, content} <- File.read(mix_path) do
+      content
+      |> extract_mix_deps_sections()
+      |> Enum.reduce(empty_dep_buckets(), fn section, acc ->
+        merge_dep_buckets(acc, parse_mix_deps_section(section))
+      end)
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
     end
   end
 
@@ -318,202 +321,165 @@ defmodule PortfolioManager.Adapters.FileDetector do
   defp detect_pyproject_deps(path) do
     pyproject_path = Path.join(path, "pyproject.toml")
 
-    if File.exists?(pyproject_path) do
-      case File.read(pyproject_path) do
-        {:ok, content} ->
-          runtime =
-            content
-            |> extract_toml_section("project")
-            |> extract_toml_array("dependencies")
-            |> Enum.map(&normalize_python_dep/1)
+    with true <- File.exists?(pyproject_path),
+         {:ok, content} <- File.read(pyproject_path) do
+      runtime =
+        content
+        |> extract_toml_section("project")
+        |> extract_toml_array("dependencies")
+        |> Enum.map(&normalize_python_dep/1)
 
-          {dev, optional} = extract_pyproject_optional(content)
+      {dev, optional} = extract_pyproject_optional(content)
 
-          %{
-            runtime: runtime,
-            dev: dev,
-            optional: optional
-          }
-          |> normalize_dep_buckets()
-
-        _ ->
-          empty_dep_buckets()
-      end
+      normalize_dep_buckets(%{runtime: runtime, dev: dev, optional: optional})
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
     end
   end
 
   defp detect_setup_py_deps(path) do
     setup_path = Path.join(path, "setup.py")
 
-    if File.exists?(setup_path) do
-      case File.read(setup_path) do
-        {:ok, content} ->
-          runtime =
-            content
-            |> extract_python_list("install_requires")
-            |> Enum.map(&normalize_python_dep/1)
+    with true <- File.exists?(setup_path),
+         {:ok, content} <- File.read(setup_path) do
+      runtime =
+        content
+        |> extract_python_list("install_requires")
+        |> Enum.map(&normalize_python_dep/1)
 
-          dev_from_tests =
-            content
-            |> extract_python_list("tests_require")
-            |> Enum.map(&normalize_python_dep/1)
+      dev_from_tests =
+        content
+        |> extract_python_list("tests_require")
+        |> Enum.map(&normalize_python_dep/1)
 
-          {dev, optional} = extract_setup_extras(content)
+      {dev, optional} = extract_setup_extras(content)
 
-          %{
-            runtime: runtime,
-            dev: Enum.uniq(dev ++ dev_from_tests),
-            optional: optional
-          }
-          |> normalize_dep_buckets()
-
-        _ ->
-          empty_dep_buckets()
-      end
+      normalize_dep_buckets(%{
+        runtime: runtime,
+        dev: Enum.uniq(dev ++ dev_from_tests),
+        optional: optional
+      })
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
     end
   end
 
   defp detect_requirements_deps(path) do
     runtime = read_requirements(path)
-
-    %{
-      runtime: runtime,
-      dev: [],
-      optional: []
-    }
-    |> normalize_dep_buckets()
+    normalize_dep_buckets(%{runtime: runtime, dev: [], optional: []})
   end
 
   defp detect_js_deps(path) do
     pkg_path = Path.join(path, "package.json")
 
-    if File.exists?(pkg_path) do
-      case File.read(pkg_path) do
-        {:ok, content} ->
-          case Jason.decode(content) do
-            {:ok, pkg} ->
-              runtime = Map.get(pkg, "dependencies", %{}) |> Map.keys()
-              dev = Map.get(pkg, "devDependencies", %{}) |> Map.keys()
-              peer = Map.get(pkg, "peerDependencies", %{}) |> Map.keys()
-              optional = Map.get(pkg, "optionalDependencies", %{}) |> Map.keys()
-
-              %{
-                runtime: runtime,
-                dev: dev,
-                optional: Enum.uniq(peer ++ optional)
-              }
-              |> normalize_dep_buckets()
-
-            _ ->
-              empty_dep_buckets()
-          end
-
-        _ ->
-          empty_dep_buckets()
-      end
+    with true <- File.exists?(pkg_path),
+         {:ok, content} <- File.read(pkg_path),
+         {:ok, pkg} <- Jason.decode(content) do
+      parse_package_json_deps(pkg)
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
     end
+  end
+
+  defp parse_package_json_deps(pkg) do
+    runtime = Map.get(pkg, "dependencies", %{}) |> Map.keys()
+    dev = Map.get(pkg, "devDependencies", %{}) |> Map.keys()
+    peer = Map.get(pkg, "peerDependencies", %{}) |> Map.keys()
+    optional = Map.get(pkg, "optionalDependencies", %{}) |> Map.keys()
+
+    normalize_dep_buckets(%{
+      runtime: runtime,
+      dev: dev,
+      optional: Enum.uniq(peer ++ optional)
+    })
   end
 
   defp detect_rust_deps(path) do
     cargo_path = Path.join(path, "Cargo.toml")
 
-    if File.exists?(cargo_path) do
-      case File.read(cargo_path) do
-        {:ok, content} ->
-          {_, deps} =
-            content
-            |> String.split("\n")
-            |> Enum.reduce({nil, empty_dep_buckets()}, fn line, {current, acc} ->
-              cond do
-                Regex.match?(~r/^\s*\[dependencies\]\s*$/, line) ->
-                  {:runtime, acc}
-
-                Regex.match?(~r/^\s*\[dev-dependencies\]\s*$/, line) ->
-                  {:dev, acc}
-
-                Regex.match?(~r/^\s*\[build-dependencies\]\s*$/, line) ->
-                  {:optional, acc}
-
-                Regex.match?(~r/^\s*\[.+\]\s*$/, line) ->
-                  {nil, acc}
-
-                current in [:runtime, :dev, :optional] ->
-                  case Regex.run(~r/^\s*([A-Za-z0-9_-]+)\s*=/, line) do
-                    [_, dep] ->
-                      {current, Map.update(acc, current, [dep], &[dep | &1])}
-
-                    _ ->
-                      {current, acc}
-                  end
-
-                true ->
-                  {current, acc}
-              end
-            end)
-
-          normalize_dep_buckets(deps)
-
-        _ ->
-          empty_dep_buckets()
-      end
+    with true <- File.exists?(cargo_path),
+         {:ok, content} <- File.read(cargo_path) do
+      parse_cargo_deps(content)
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
+    end
+  end
+
+  defp parse_cargo_deps(content) do
+    {_, deps} =
+      content
+      |> String.split("\n")
+      |> Enum.reduce({nil, empty_dep_buckets()}, &process_cargo_line/2)
+
+    normalize_dep_buckets(deps)
+  end
+
+  defp process_cargo_line(line, {current, acc}) do
+    case classify_cargo_line(line) do
+      {:section, new_section} -> {new_section, acc}
+      :other_section -> {nil, acc}
+      :dep when current in [:runtime, :dev, :optional] -> add_cargo_dep(line, current, acc)
+      _ -> {current, acc}
+    end
+  end
+
+  defp classify_cargo_line(line) do
+    cond do
+      Regex.match?(~r/^\s*\[dependencies\]\s*$/, line) -> {:section, :runtime}
+      Regex.match?(~r/^\s*\[dev-dependencies\]\s*$/, line) -> {:section, :dev}
+      Regex.match?(~r/^\s*\[build-dependencies\]\s*$/, line) -> {:section, :optional}
+      Regex.match?(~r/^\s*\[.+\]\s*$/, line) -> :other_section
+      true -> :dep
+    end
+  end
+
+  defp add_cargo_dep(line, current, acc) do
+    case Regex.run(~r/^\s*([A-Za-z0-9_-]+)\s*=/, line) do
+      [_, dep] -> {current, Map.update(acc, current, [dep], &[dep | &1])}
+      _ -> {current, acc}
     end
   end
 
   defp detect_go_deps(path) do
     go_mod_path = Path.join(path, "go.mod")
 
-    if File.exists?(go_mod_path) do
-      case File.read(go_mod_path) do
-        {:ok, content} ->
-          runtime =
-            ~r/(?:require\s+|\t)([\w\.\-\/]+)\s+v/
-            |> Regex.scan(content)
-            |> Enum.map(fn [_, dep] -> dep end)
-            |> Enum.reject(&String.contains?(&1, "// indirect"))
-            |> Enum.uniq()
-
-          %{
-            runtime: runtime,
-            dev: [],
-            optional: []
-          }
-          |> normalize_dep_buckets()
-
-        _ ->
-          empty_dep_buckets()
-      end
+    with true <- File.exists?(go_mod_path),
+         {:ok, content} <- File.read(go_mod_path) do
+      parse_go_mod_deps(content)
     else
-      empty_dep_buckets()
+      _ -> empty_dep_buckets()
     end
+  end
+
+  defp parse_go_mod_deps(content) do
+    runtime =
+      ~r/(?:require\s+|\t)([\w\.\-\/]+)\s+v/
+      |> Regex.scan(content)
+      |> Enum.map(fn [_, dep] -> dep end)
+      |> Enum.reject(&String.contains?(&1, "// indirect"))
+      |> Enum.uniq()
+
+    normalize_dep_buckets(%{runtime: runtime, dev: [], optional: []})
   end
 
   defp read_requirements(path) do
     req_path = Path.join(path, "requirements.txt")
 
-    if File.exists?(req_path) do
-      case File.read(req_path) do
-        {:ok, content} ->
-          content
-          |> String.split("\n")
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(String.starts_with?(&1, "#") or &1 == ""))
-          |> Enum.map(&normalize_python_dep/1)
-          |> Enum.reject(&(&1 == ""))
-
-        _ ->
-          []
-      end
+    with true <- File.exists?(req_path),
+         {:ok, content} <- File.read(req_path) do
+      parse_requirements_content(content)
     else
-      []
+      _ -> []
     end
+  end
+
+  defp parse_requirements_content(content) do
+    content
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(String.starts_with?(&1, "#") or &1 == ""))
+    |> Enum.map(&normalize_python_dep/1)
+    |> Enum.reject(&(&1 == ""))
   end
 
   defp list_files(path) do
@@ -546,17 +512,10 @@ defmodule PortfolioManager.Adapters.FileDetector do
 
   defp classify_elixir_dep(opts) when is_binary(opts) do
     cond do
-      Regex.match?(~r/optional:\s*true/, opts) ->
-        :optional
-
-      Regex.match?(~r/only:\s*\[?[^\]]*:(dev|test)[^\]]*\]?/, opts) ->
-        :dev
-
-      Regex.match?(~r/only:\s*:(dev|test)/, opts) ->
-        :dev
-
-      true ->
-        :runtime
+      Regex.match?(~r/optional:\s*true/, opts) -> :optional
+      Regex.match?(~r/only:\s*\[?[^\]]*:(dev|test)[^\]]*\]?/, opts) -> :dev
+      Regex.match?(~r/only:\s*:(dev|test)/, opts) -> :dev
+      true -> :runtime
     end
   end
 
@@ -588,24 +547,24 @@ defmodule PortfolioManager.Adapters.FileDetector do
 
   defp extract_pyproject_optional(content) do
     section = extract_toml_section(content, "project.optional-dependencies")
+    parse_optional_deps_section(section)
+  end
 
-    if is_binary(section) do
-      Regex.scan(~r/^\s*([A-Za-z0-9_-]+)\s*=\s*\[(.*?)\]/ms, section)
-      |> Enum.reduce({[], []}, fn [_, group, list_body], {dev, optional} ->
-        deps = extract_quoted_strings(list_body) |> Enum.map(&normalize_python_dep/1)
-        group = String.downcase(group)
+  defp parse_optional_deps_section(nil), do: {[], []}
 
-        if group in ["dev", "test", "tests", "development"] do
-          {dev ++ deps, optional}
-        else
-          {dev, optional ++ deps}
-        end
-      end)
-      |> then(fn {dev, optional} ->
-        {Enum.uniq(dev), Enum.uniq(optional)}
-      end)
+  defp parse_optional_deps_section(section) do
+    Regex.scan(~r/^\s*([A-Za-z0-9_-]+)\s*=\s*\[(.*?)\]/ms, section)
+    |> Enum.reduce({[], []}, &classify_optional_group/2)
+    |> then(fn {dev, optional} -> {Enum.uniq(dev), Enum.uniq(optional)} end)
+  end
+
+  defp classify_optional_group([_, group, list_body], {dev, optional}) do
+    deps = list_body |> extract_quoted_strings() |> Enum.map(&normalize_python_dep/1)
+
+    if String.downcase(group) in ["dev", "test", "tests", "development"] do
+      {dev ++ deps, optional}
     else
-      {[], []}
+      {dev, optional ++ deps}
     end
   end
 
@@ -618,24 +577,24 @@ defmodule PortfolioManager.Adapters.FileDetector do
 
   defp extract_setup_extras(content) do
     case Regex.run(~r/extras_require\s*=\s*\{(.*?)\}/ms, content) do
-      [_, body] ->
-        Regex.scan(~r/["']([^"']+)["']\s*:\s*\[(.*?)\]/ms, body)
-        |> Enum.reduce({[], []}, fn [_, group, list_body], {dev, optional} ->
-          deps = extract_quoted_strings(list_body) |> Enum.map(&normalize_python_dep/1)
-          group = String.downcase(group)
+      [_, body] -> parse_extras_require(body)
+      _ -> {[], []}
+    end
+  end
 
-          if group in ["dev", "test", "tests", "development"] do
-            {dev ++ deps, optional}
-          else
-            {dev, optional ++ deps}
-          end
-        end)
-        |> then(fn {dev, optional} ->
-          {Enum.uniq(dev), Enum.uniq(optional)}
-        end)
+  defp parse_extras_require(body) do
+    Regex.scan(~r/["']([^"']+)["']\s*:\s*\[(.*?)\]/ms, body)
+    |> Enum.reduce({[], []}, &classify_extras_group/2)
+    |> then(fn {dev, optional} -> {Enum.uniq(dev), Enum.uniq(optional)} end)
+  end
 
-      _ ->
-        {[], []}
+  defp classify_extras_group([_, group, list_body], {dev, optional}) do
+    deps = list_body |> extract_quoted_strings() |> Enum.map(&normalize_python_dep/1)
+
+    if String.downcase(group) in ["dev", "test", "tests", "development"] do
+      {dev ++ deps, optional}
+    else
+      {dev, optional ++ deps}
     end
   end
 
@@ -678,14 +637,11 @@ defmodule PortfolioManager.Adapters.FileDetector do
   end
 
   defp calculate_confidence(language, type) do
-    base =
-      case {language, type} do
-        {:unknown, :unknown} -> 0.1
-        {:unknown, _} -> 0.3
-        {_, :unknown} -> 0.5
-        {_, _} -> 0.8
-      end
-
-    base
+    case {language, type} do
+      {:unknown, :unknown} -> 0.1
+      {:unknown, _} -> 0.3
+      {_, :unknown} -> 0.5
+      {_, _} -> 0.8
+    end
   end
 end

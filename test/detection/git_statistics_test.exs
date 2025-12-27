@@ -92,7 +92,7 @@ defmodule PortfolioManager.Detection.GitStatisticsTest do
       {:ok, contributors} = LocalGit.get_contributors(tmp_dir)
 
       assert is_list(contributors)
-      assert length(contributors) >= 1
+      assert contributors != []
 
       [first | _] = contributors
       assert Map.has_key?(first, :name)

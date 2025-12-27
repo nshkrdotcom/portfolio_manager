@@ -183,8 +183,7 @@ defmodule PortfolioManager.TestHelpers do
   end
 
   defp encode_repos(repos) do
-    repos
-    |> Enum.map(fn repo ->
+    Enum.map_join(repos, "", fn repo ->
       """
         - id: #{repo["id"]}
           name: #{repo["name"]}
@@ -194,18 +193,15 @@ defmodule PortfolioManager.TestHelpers do
           language: #{repo["language"]}
       """
     end)
-    |> Enum.join("")
   end
 
   defp encode_rels(rels) do
-    rels
-    |> Enum.map(fn rel ->
+    Enum.map_join(rels, "", fn rel ->
       """
         - from: #{rel["from"]}
           to: #{rel["to"]}
           type: #{rel["type"]}
       """
     end)
-    |> Enum.join("")
   end
 end

@@ -85,26 +85,7 @@ defmodule Mix.Tasks.Portfolio.Edit do
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        case PortfolioManager.get_repo(portfolio, repo_id) do
-          {:ok, _repo} ->
-            updates = build_updates(opts)
-            set_updates = opts[:set] |> List.wrap()
-
-            has_updates =
-              map_size(updates) > 0 or set_updates != [] or opts[:note] or opts[:decision]
-
-            cond do
-              has_updates ->
-                handle_updates(portfolio, repo_id, updates, set_updates, opts)
-
-              true ->
-                open_edit_target(portfolio, repo_id, field, opts)
-            end
-
-          {:error, :not_found} ->
-            Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
-            Exit.halt(:not_found)
-        end
+        handle_edit_repo(portfolio, repo_id, field, opts)
 
       {:error, :not_initialized} ->
         Mix.shell().error("""
@@ -113,6 +94,31 @@ defmodule Mix.Tasks.Portfolio.Edit do
         """)
 
         Exit.halt(:config)
+    end
+  end
+
+  defp handle_edit_repo(portfolio, repo_id, field, opts) do
+    case PortfolioManager.get_repo(portfolio, repo_id) do
+      {:ok, _repo} ->
+        process_edit(portfolio, repo_id, field, opts)
+
+      {:error, :not_found} ->
+        Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
+        Exit.halt(:not_found)
+    end
+  end
+
+  defp process_edit(portfolio, repo_id, field, opts) do
+    updates = build_updates(opts)
+    set_updates = opts[:set] |> List.wrap()
+
+    has_updates =
+      map_size(updates) > 0 or set_updates != [] or opts[:note] or opts[:decision]
+
+    if has_updates do
+      handle_updates(portfolio, repo_id, updates, set_updates, opts)
+    else
+      open_edit_target(portfolio, repo_id, field, opts)
     end
   end
 
@@ -148,68 +154,76 @@ defmodule Mix.Tasks.Portfolio.Edit do
   end
 
   defp handle_updates(portfolio, repo_id, updates, set_updates, opts) do
-    note_result =
-      if opts[:note] do
-        PortfolioManager.add_note(portfolio, repo_id, opts[:note])
-      else
-        {:ok, nil}
-      end
+    note_result = apply_note(portfolio, repo_id, opts[:note])
+    decision_result = apply_decision(portfolio, repo_id, opts[:decision])
+    context_result = apply_context_updates(portfolio, repo_id, updates, set_updates)
 
-    decision_result =
-      if opts[:decision] do
-        case String.split(opts[:decision], ":", parts: 2) do
-          [title, content] ->
-            PortfolioManager.add_decision(portfolio, repo_id, title, content)
+    process_update_results(note_result, decision_result, context_result, portfolio, updates, opts)
+  end
 
-          [title] ->
-            PortfolioManager.add_decision(portfolio, repo_id, title, "")
-        end
-      else
-        {:ok, nil}
-      end
+  defp apply_note(_portfolio, _repo_id, nil), do: {:ok, nil}
 
-    context_result =
-      case set_updates do
-        [] ->
-          if map_size(updates) > 0 do
-            PortfolioManager.update_context(portfolio, repo_id, updates)
-          else
-            PortfolioManager.get_context(portfolio, repo_id)
-          end
+  defp apply_note(portfolio, repo_id, note) do
+    PortfolioManager.add_note(portfolio, repo_id, note)
+  end
 
-        _ ->
-          with {:ok, context} <- PortfolioManager.get_context(portfolio, repo_id) do
-            merged_updates = apply_set_updates(context, updates, set_updates)
+  defp apply_decision(_portfolio, _repo_id, nil), do: {:ok, nil}
 
-            if map_size(merged_updates) > 0 do
-              PortfolioManager.update_context(portfolio, repo_id, merged_updates)
-            else
-              {:ok, context}
-            end
-          end
-      end
+  defp apply_decision(portfolio, repo_id, decision) do
+    case String.split(decision, ":", parts: 2) do
+      [title, content] -> PortfolioManager.add_decision(portfolio, repo_id, title, content)
+      [title] -> PortfolioManager.add_decision(portfolio, repo_id, title, "")
+    end
+  end
 
-    case {note_result, decision_result, context_result} do
-      {{:ok, _}, {:ok, _}, {:ok, context}} ->
-        PortfolioManager.sync(portfolio)
+  defp apply_context_updates(portfolio, repo_id, updates, []) when map_size(updates) > 0 do
+    PortfolioManager.update_context(portfolio, repo_id, updates)
+  end
 
-        if opts[:json] do
-          output_json(context)
-        else
-          output_success(context, updates, opts)
-        end
+  defp apply_context_updates(portfolio, repo_id, _updates, []) do
+    PortfolioManager.get_context(portfolio, repo_id)
+  end
 
-      {{:error, reason}, _, _} ->
-        Mix.shell().error("Failed to add note: #{inspect(reason)}")
-        Exit.halt(:error)
+  defp apply_context_updates(portfolio, repo_id, updates, set_updates) do
+    with {:ok, context} <- PortfolioManager.get_context(portfolio, repo_id) do
+      merged_updates = apply_set_updates(context, updates, set_updates)
+      apply_merged_updates(portfolio, repo_id, context, merged_updates)
+    end
+  end
 
-      {_, {:error, reason}, _} ->
-        Mix.shell().error("Failed to add decision: #{inspect(reason)}")
-        Exit.halt(:error)
+  defp apply_merged_updates(_portfolio, _repo_id, context, merged) when map_size(merged) == 0 do
+    {:ok, context}
+  end
 
-      {_, _, {:error, reason}} ->
-        Mix.shell().error("Failed to update: #{inspect(reason)}")
-        Exit.halt(:error)
+  defp apply_merged_updates(portfolio, repo_id, _context, merged) do
+    PortfolioManager.update_context(portfolio, repo_id, merged)
+  end
+
+  defp process_update_results({:ok, _}, {:ok, _}, {:ok, context}, portfolio, updates, opts) do
+    PortfolioManager.sync(portfolio)
+    output_update_result(context, updates, opts)
+  end
+
+  defp process_update_results({:error, reason}, _, _, _portfolio, _updates, _opts) do
+    Mix.shell().error("Failed to add note: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp process_update_results(_, {:error, reason}, _, _portfolio, _updates, _opts) do
+    Mix.shell().error("Failed to add decision: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp process_update_results(_, _, {:error, reason}, _portfolio, _updates, _opts) do
+    Mix.shell().error("Failed to update: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp output_update_result(context, updates, opts) do
+    if opts[:json] do
+      output_json(context)
+    else
+      output_success(context, updates, opts)
     end
   end
 
@@ -349,48 +363,44 @@ defmodule Mix.Tasks.Portfolio.Edit do
   end
 
   defp output_success(context, updates, opts) do
-    changes = []
+    changes = collect_changes(context, opts)
 
-    changes =
-      if opts[:type], do: changes ++ ["type: #{context.repo.type}"], else: changes
+    print_changes(context.repo.id, changes, updates)
+  end
 
-    changes =
-      if opts[:status], do: changes ++ ["status: #{context.repo.status}"], else: changes
+  defp collect_changes(context, opts) do
+    []
+    |> maybe_add_change(opts[:type], "type: #{context.repo.type}")
+    |> maybe_add_change(opts[:status], "status: #{context.repo.status}")
+    |> maybe_add_change(opts[:purpose], "purpose: #{context.repo.purpose}")
+    |> maybe_add_change(opts[:tags], "tags: #{Enum.join(context.repo.tags, ", ")}")
+    |> maybe_add_change(opts[:priority], "priority: #{context.repo.priority}")
+    |> maybe_add_change(opts[:note], "note added")
+    |> maybe_add_change(opts[:decision], "decision added")
+    |> add_set_changes(opts[:set])
+  end
 
-    changes =
-      if opts[:purpose], do: changes ++ ["purpose: #{context.repo.purpose}"], else: changes
+  defp maybe_add_change(changes, nil, _msg), do: changes
+  defp maybe_add_change(changes, _value, msg), do: changes ++ [msg]
 
-    changes =
-      if opts[:tags],
-        do: changes ++ ["tags: #{Enum.join(context.repo.tags, ", ")}"],
-        else: changes
+  defp add_set_changes(changes, nil), do: changes
 
-    changes =
-      if opts[:priority], do: changes ++ ["priority: #{context.repo.priority}"], else: changes
+  defp add_set_changes(changes, set_updates) do
+    set_list = List.wrap(set_updates)
+    if set_list == [], do: changes, else: changes ++ Enum.map(set_list, &"set #{&1}")
+  end
 
-    changes =
-      if opts[:note], do: changes ++ ["note added"], else: changes
+  defp print_changes(_repo_id, [], updates) when map_size(updates) == 0 do
+    Mix.shell().info("No changes specified. Use --help for available options.")
+  end
 
-    changes =
-      if opts[:decision], do: changes ++ ["decision added"], else: changes
+  defp print_changes(repo_id, changes, _updates) do
+    Mix.shell().info("""
+    #{IO.ANSI.green()}Updated #{repo_id}#{IO.ANSI.reset()}
 
-    set_updates = opts[:set] |> List.wrap()
-
-    changes =
-      if set_updates != [],
-        do: changes ++ Enum.map(set_updates, &"set #{&1}"),
-        else: changes
-
-    if changes == [] and map_size(updates) == 0 do
-      Mix.shell().info("No changes specified. Use --help for available options.")
-    else
-      Mix.shell().info("""
-      #{IO.ANSI.green()}Updated #{context.repo.id}#{IO.ANSI.reset()}
-
-      Changes:
-        #{Enum.join(changes, "\n    ")}
-      """)
-    end
+    Changes:
+      #{Enum.join(changes, "\n    ")}
+    """)
   end
 
   defp show_help do

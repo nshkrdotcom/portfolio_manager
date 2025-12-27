@@ -3,50 +3,51 @@ defmodule PortfolioManager.Workflow.Steps.FileStep do
   File operation steps.
   """
 
-  alias PortfolioManager.Workflow.Context
   alias PortfolioManager.Adapters.LocalGit
+  alias PortfolioManager.Workflow.Context
 
   @spec execute(map(), Context.t(), keyword()) :: {:ok, Context.t(), term()} | {:error, term()}
   def execute(step, context, _opts) do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
-
-    case action do
-      "read" -> read_files(inputs, context)
-      "write" -> write_files(inputs, context)
-      "find_git_repos" -> find_git_repos(inputs, context)
-      _ -> {:error, "Unknown file action: #{action}"}
-    end
+    dispatch_action(action, inputs, context)
   end
 
-  defp read_files(inputs, context) do
-    base = Map.get(inputs, "path") || Map.get(inputs, :path) || ""
-    patterns = Map.get(inputs, "patterns") || Map.get(inputs, :patterns) || []
-    max_size = Map.get(inputs, "max_size") || Map.get(inputs, :max_size) || 200_000
+  defp dispatch_action("read", inputs, context), do: read_files(inputs, context)
+  defp dispatch_action("write", inputs, context), do: write_files(inputs, context)
+  defp dispatch_action("find_git_repos", inputs, context), do: find_git_repos(inputs, context)
+  defp dispatch_action(action, _inputs, _context), do: {:error, "Unknown file action: #{action}"}
 
-    files =
-      case patterns do
-        [] -> if File.regular?(base), do: [base], else: []
-        _ -> Enum.flat_map(patterns, &Path.wildcard(Path.join(base, &1)))
-      end
+  defp read_files(inputs, context) do
+    base = get_input(inputs, "path") || ""
+    patterns = get_input(inputs, "patterns") || []
+    max_size = get_input(inputs, "max_size") || 200_000
+
+    files = resolve_files(base, patterns)
 
     contents =
       files
-      |> Enum.flat_map(fn path ->
-        case File.stat(path) do
-          {:ok, stat} when stat.size <= max_size ->
-            case File.read(path) do
-              {:ok, content} -> [{path, content}]
-              _ -> []
-            end
-
-          _ ->
-            []
-        end
-      end)
+      |> Enum.flat_map(&read_file_if_valid(&1, max_size))
       |> Map.new()
 
     {:ok, context, %{files: contents}}
+  end
+
+  defp resolve_files(base, []), do: if(File.regular?(base), do: [base], else: [])
+
+  defp resolve_files(base, patterns),
+    do: Enum.flat_map(patterns, &Path.wildcard(Path.join(base, &1)))
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
+
+  defp read_file_if_valid(path, max_size) do
+    with {:ok, stat} <- File.stat(path),
+         true <- stat.size <= max_size,
+         {:ok, content} <- File.read(path) do
+      [{path, content}]
+    else
+      _ -> []
+    end
   end
 
   defp write_files(inputs, context) do

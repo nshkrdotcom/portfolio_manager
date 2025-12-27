@@ -121,22 +121,27 @@ defmodule PortfolioManager.Adapters.LocalGit do
   def last_commit_info(path) do
     case run_git(path, ["log", "-1", "--format=%H|%aI|%s"]) do
       {:ok, output} ->
-        case String.trim(output) |> String.split("|", parts: 3) do
-          [sha, date_str, message] ->
-            date =
-              case DateTime.from_iso8601(date_str) do
-                {:ok, dt, _} -> dt
-                {:error, _} -> nil
-              end
-
-            {:ok, %{sha: sha, date: date, message: message}}
-
-          _ ->
-            {:ok, nil}
-        end
+        parse_commit_info(output)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp parse_commit_info(output) do
+    case String.trim(output) |> String.split("|", parts: 3) do
+      [sha, date_str, message] ->
+        {:ok, %{sha: sha, date: parse_date(date_str), message: message}}
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp parse_date(date_str) do
+    case DateTime.from_iso8601(date_str) do
+      {:ok, dt, _} -> dt
+      {:error, _} -> nil
     end
   end
 
@@ -185,19 +190,7 @@ defmodule PortfolioManager.Adapters.LocalGit do
   def last_remote_commit_info(path) do
     case run_git(path, ["log", "-1", "--format=%H|%aI|%s", "@{u}"]) do
       {:ok, output} ->
-        case String.trim(output) |> String.split("|", parts: 3) do
-          [sha, date_str, message] ->
-            date =
-              case DateTime.from_iso8601(date_str) do
-                {:ok, dt, _} -> dt
-                {:error, _} -> nil
-              end
-
-            {:ok, %{sha: sha, date: date, message: message}}
-
-          _ ->
-            {:ok, nil}
-        end
+        parse_commit_info(output)
 
       {:error, _} ->
         {:ok, nil}
@@ -263,21 +256,16 @@ defmodule PortfolioManager.Adapters.LocalGit do
   def first_commit_date(path) do
     case run_git(path, ["log", "--reverse", "--format=%cI"]) do
       {:ok, output} ->
-        case output |> String.split("\n") |> List.first() do
-          nil ->
-            {:ok, nil}
-
-          date_str ->
-            case DateTime.from_iso8601(String.trim(date_str)) do
-              {:ok, dt, _} -> {:ok, dt}
-              {:error, _} -> {:ok, nil}
-            end
-        end
+        date = output |> String.split("\n") |> List.first() |> parse_first_date()
+        {:ok, date}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp parse_first_date(nil), do: nil
+  defp parse_first_date(date_str), do: parse_date(String.trim(date_str))
 
   @doc """
   Gets the number of days since the last commit.
@@ -291,7 +279,7 @@ defmodule PortfolioManager.Adapters.LocalGit do
       {:ok, %DateTime{} = last_commit} ->
         now = DateTime.utc_now()
         diff_seconds = DateTime.diff(now, last_commit)
-        days = div(diff_seconds, 86400)
+        days = div(diff_seconds, 86_400)
         {:ok, days}
     end
   end
@@ -327,21 +315,8 @@ defmodule PortfolioManager.Adapters.LocalGit do
       case File.ls(path) do
         {:ok, entries} ->
           entries
-          |> Enum.filter(fn entry ->
-            not String.starts_with?(entry, ".") and
-              not Enum.any?(exclude, fn pattern ->
-                matches_pattern?(entry, pattern)
-              end)
-          end)
-          |> Enum.flat_map(fn entry ->
-            full_path = Path.join(path, entry)
-
-            if File.dir?(full_path) do
-              find_repos(full_path, max_depth, exclude, current_depth + 1)
-            else
-              []
-            end
-          end)
+          |> Enum.filter(&should_include_entry?(&1, exclude))
+          |> Enum.flat_map(&process_dir_entry(&1, path, max_depth, exclude, current_depth))
 
         {:error, _} ->
           []
@@ -350,6 +325,19 @@ defmodule PortfolioManager.Adapters.LocalGit do
   end
 
   defp find_repos(_path, _max_depth, _exclude, _current_depth), do: []
+
+  defp should_include_entry?(entry, exclude) do
+    not String.starts_with?(entry, ".") and
+      not Enum.any?(exclude, &matches_pattern?(entry, &1))
+  end
+
+  defp process_dir_entry(entry, path, max_depth, exclude, current_depth) do
+    full_path = Path.join(path, entry)
+
+    if File.dir?(full_path),
+      do: find_repos(full_path, max_depth, exclude, current_depth + 1),
+      else: []
+  end
 
   defp matches_pattern?(entry, pattern) do
     # Simple glob matching

@@ -60,11 +60,9 @@ defmodule PortfolioManager.Rag.Tools.ListRepos do
   end
 
   defp parse_value(v) when is_binary(v) do
-    try do
-      String.to_existing_atom(v)
-    rescue
-      ArgumentError -> v
-    end
+    String.to_existing_atom(v)
+  rescue
+    ArgumentError -> v
   end
 
   defp parse_value(v), do: v

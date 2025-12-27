@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.ScanTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Scan
+
   test "uses configured scan directories when none provided" do
     portfolio_path = create_test_portfolio()
     scan_dir = Path.join(System.tmp_dir!(), "scan_dir_#{:rand.uniform(1_000_000)}")
@@ -29,7 +31,7 @@ defmodule Mix.Tasks.Portfolio.ScanTest do
     Mix.Task.reenable("portfolio.scan")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Scan.run(["--portfolio-dir", portfolio_path])
+      Scan.run(["--portfolio-dir", portfolio_path])
     end)
 
     {:ok, portfolio} = PortfolioManager.init(portfolio_path)
@@ -67,7 +69,7 @@ defmodule Mix.Tasks.Portfolio.ScanTest do
     Mix.Task.reenable("portfolio.scan")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Scan.run(["--portfolio-dir", portfolio_path])
+      Scan.run(["--portfolio-dir", portfolio_path])
     end)
 
     {:ok, portfolio} = PortfolioManager.init(portfolio_path)

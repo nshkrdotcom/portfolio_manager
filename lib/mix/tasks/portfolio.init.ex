@@ -23,6 +23,7 @@ defmodule Mix.Tasks.Portfolio.Init do
 
   use Mix.Task
 
+  alias PortfolioManager.Adapters.YAMLStorage
   alias PortfolioManager.CLI.Exit
 
   @impl Mix.Task
@@ -44,33 +45,35 @@ defmodule Mix.Tasks.Portfolio.Init do
       """)
     else
       path = List.first(args) || default_portfolio_path()
-      expanded = Path.expand(path)
+      do_init(Path.expand(path))
+    end
+  end
 
-      if PortfolioManager.Adapters.YAMLStorage.exists?(expanded) do
-        Mix.shell().error("Portfolio already exists at #{expanded}")
-        Exit.halt(:config)
-      else
-        case PortfolioManager.Adapters.YAMLStorage.create(expanded) do
-          :ok ->
-            Mix.shell().info("""
-            #{IO.ANSI.green()}Initialized portfolio at #{expanded}#{IO.ANSI.reset()}
+  defp do_init(expanded) do
+    if YAMLStorage.exists?(expanded) do
+      Mix.shell().error("Portfolio already exists at #{expanded}")
+      Exit.halt(:config)
+    else
+      case YAMLStorage.create(expanded) do
+        :ok ->
+          Mix.shell().info("""
+          #{IO.ANSI.green()}Initialized portfolio at #{expanded}#{IO.ANSI.reset()}
 
-            Structure created:
-              #{expanded}/
-              ├── config.yml
-              ├── registry.yml
-              ├── relationships.yml
-              └── repos/
+          Structure created:
+            #{expanded}/
+            ├── config.yml
+            ├── registry.yml
+            ├── relationships.yml
+            └── repos/
 
-            Next steps:
-              1. Run `mix portfolio.scan` to discover repositories
-              2. Run `mix portfolio.list` to see tracked repos
-            """)
+          Next steps:
+            1. Run `mix portfolio.scan` to discover repositories
+            2. Run `mix portfolio.list` to see tracked repos
+          """)
 
-          {:error, reason} ->
-            Mix.shell().error("Failed to initialize portfolio: #{inspect(reason)}")
-            Exit.halt(:error)
-        end
+        {:error, reason} ->
+          Mix.shell().error("Failed to initialize portfolio: #{inspect(reason)}")
+          Exit.halt(:error)
       end
     end
   end

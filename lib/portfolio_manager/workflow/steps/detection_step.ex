@@ -3,30 +3,42 @@ defmodule PortfolioManager.Workflow.Steps.DetectionStep do
   Detection step handlers.
   """
 
-  alias PortfolioManager.Workflow.Context
   alias PortfolioManager.Adapters.FileDetector
   alias PortfolioManager.Detection.Agentic
+  alias PortfolioManager.Workflow.Context
 
   @spec execute(map(), Context.t(), keyword()) :: {:ok, Context.t(), term()} | {:error, term()}
   def execute(step, context, opts) do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
     portfolio = Keyword.get(opts, :portfolio)
-
-    case action do
-      "deterministic" ->
-        path = Map.get(inputs, "path") || Map.get(inputs, :path)
-        run_deterministic(path, context)
-
-      "agentic" ->
-        repo = Map.get(inputs, "repo") || Map.get(inputs, :repo)
-        path = Map.get(repo, "path") || Map.get(repo, :path) || Map.get(inputs, "path")
-        run_agentic(path, portfolio, context)
-
-      _ ->
-        {:error, "Unknown detection action: #{action}"}
-    end
+    dispatch_action(action, inputs, portfolio, context)
   end
+
+  defp dispatch_action("deterministic", inputs, _portfolio, context) do
+    path = get_input(inputs, "path")
+    run_deterministic(path, context)
+  end
+
+  defp dispatch_action("agentic", inputs, portfolio, context) do
+    path = extract_agentic_path(inputs)
+    run_agentic(path, portfolio, context)
+  end
+
+  defp dispatch_action(action, _inputs, _portfolio, _context) do
+    {:error, "Unknown detection action: #{action}"}
+  end
+
+  defp extract_agentic_path(inputs) do
+    repo = get_input(inputs, "repo")
+    (repo && get_input(repo, "path")) || get_input(inputs, "path")
+  end
+
+  defp get_input(inputs, key) when is_map(inputs) do
+    Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
+  end
+
+  defp get_input(_, _), do: nil
 
   defp run_deterministic(nil, _context), do: {:error, "path required"}
 

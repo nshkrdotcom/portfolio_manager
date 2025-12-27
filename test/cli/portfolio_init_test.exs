@@ -3,6 +3,9 @@ defmodule Mix.Tasks.Portfolio.InitTest do
 
   import ExUnit.CaptureIO
 
+  alias Mix.Tasks.Portfolio.Init
+  alias PortfolioManager.Adapters.YAMLStorage
+
   setup do
     tmp_dir = Path.join(System.tmp_dir!(), "portfolio_cli_test_#{:rand.uniform(1_000_000)}")
     File.rm_rf!(tmp_dir)
@@ -16,7 +19,7 @@ defmodule Mix.Tasks.Portfolio.InitTest do
     test "creates portfolio in specified path", %{tmp_dir: tmp_dir} do
       output =
         capture_io(fn ->
-          Mix.Tasks.Portfolio.Init.run([tmp_dir])
+          Init.run([tmp_dir])
         end)
 
       assert output =~ "Initialized portfolio"
@@ -27,11 +30,11 @@ defmodule Mix.Tasks.Portfolio.InitTest do
 
     test "fails if directory already exists and is a portfolio", %{tmp_dir: tmp_dir} do
       # Create portfolio first
-      PortfolioManager.Adapters.YAMLStorage.create(tmp_dir)
+      YAMLStorage.create(tmp_dir)
 
       output =
         capture_io(:stderr, fn ->
-          Mix.Tasks.Portfolio.Init.run([tmp_dir])
+          Init.run([tmp_dir])
         end)
 
       assert output =~ "already" or output =~ "exists"
@@ -40,7 +43,7 @@ defmodule Mix.Tasks.Portfolio.InitTest do
     test "shows help with --help" do
       output =
         capture_io(fn ->
-          Mix.Tasks.Portfolio.Init.run(["--help"])
+          Init.run(["--help"])
         end)
 
       assert output =~ "Usage"
@@ -54,7 +57,7 @@ defmodule Mix.Tasks.Portfolio.InitTest do
 
       output =
         capture_io(fn ->
-          Mix.Tasks.Portfolio.Init.run([])
+          Init.run([])
         end)
 
       assert output =~ tmp_dir

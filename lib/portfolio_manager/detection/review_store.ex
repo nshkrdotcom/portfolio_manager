@@ -32,9 +32,8 @@ defmodule PortfolioManager.Detection.ReviewStore do
   @spec append_pending(GenServer.server() | String.t(), [item()]) ::
           :ok | {:error, term()}
   def append_pending(portfolio_or_path, items) when is_list(items) do
-    with {:ok, existing} <- list_pending(portfolio_or_path),
-         :ok <- save_pending(portfolio_or_path, existing ++ items) do
-      :ok
+    with {:ok, existing} <- list_pending(portfolio_or_path) do
+      save_pending(portfolio_or_path, existing ++ items)
     end
   end
 
@@ -106,24 +105,9 @@ defmodule PortfolioManager.Detection.ReviewStore do
       spaces = String.duplicate(" ", indent)
 
       list
-      |> Enum.map(fn item ->
-        item_str = do_yaml_encode(item, indent + 2) |> String.trim_trailing("\n")
-
-        if is_map(item) do
-          [first | rest] = String.split(item_str, "\n")
-          first_line = "#{spaces}- #{first}"
-
-          rest_lines =
-            Enum.map(rest, fn line ->
-              "#{spaces}  #{line}"
-            end)
-
-          Enum.join([first_line | rest_lines], "\n")
-        else
-          "#{spaces}- #{item_str}"
-        end
+      |> Enum.map_join("\n", fn item ->
+        encode_list_item(item, indent, spaces)
       end)
-      |> Enum.join("\n")
       |> Kernel.<>("\n")
     end
   end
@@ -136,21 +120,41 @@ defmodule PortfolioManager.Detection.ReviewStore do
 
       map
       |> Enum.sort_by(fn {k, _} -> k end)
-      |> Enum.map(fn {k, v} ->
-        key = to_string(k)
-
-        cond do
-          is_map(v) and map_size(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
-
-          is_list(v) and length(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
-
-          true ->
-            "#{spaces}#{key}: #{do_yaml_encode(v, indent) |> String.trim_leading()}"
-        end
+      |> Enum.map_join(fn {k, v} ->
+        encode_map_entry(k, v, spaces, indent)
       end)
-      |> Enum.join("")
+    end
+  end
+
+  defp encode_list_item(item, indent, spaces) do
+    item_str = do_yaml_encode(item, indent + 2) |> String.trim_trailing("\n")
+
+    if is_map(item) do
+      encode_map_list_item(item_str, spaces)
+    else
+      "#{spaces}- #{item_str}"
+    end
+  end
+
+  defp encode_map_list_item(item_str, spaces) do
+    [first | rest] = String.split(item_str, "\n")
+    first_line = "#{spaces}- #{first}"
+    rest_lines = Enum.map(rest, fn line -> "#{spaces}  #{line}" end)
+    Enum.join([first_line | rest_lines], "\n")
+  end
+
+  defp encode_map_entry(k, v, spaces, indent) do
+    key = to_string(k)
+
+    cond do
+      is_map(v) and map_size(v) > 0 ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+
+      is_list(v) and v != [] ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 2)}"
+
+      true ->
+        "#{spaces}#{key}: #{do_yaml_encode(v, indent) |> String.trim_leading()}"
     end
   end
 

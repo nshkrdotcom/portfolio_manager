@@ -72,11 +72,7 @@ defmodule Mix.Tasks.Portfolio.List do
             |> sort_entries(opts[:sort] || "name")
             |> apply_limit(opts[:limit])
 
-          case format do
-            "json" -> output_json(entries)
-            "compact" -> output_compact(entries)
-            _ -> output_table(entries)
-          end
+          output_entries(entries, format)
 
         {:error, :not_initialized} ->
           Mix.shell().error("""
@@ -216,16 +212,17 @@ defmodule Mix.Tasks.Portfolio.List do
   end
 
   defp compare_numeric(actual, op, value) do
-    with {left, right} when is_number(left) and is_number(right) <-
-           normalize_numbers(actual, value) do
-      case op do
-        ">" -> left > right
-        ">=" -> left >= right
-        "<" -> left < right
-        "<=" -> left <= right
-      end
-    else
-      _ -> false
+    case normalize_numbers(actual, value) do
+      {left, right} when is_number(left) and is_number(right) ->
+        case op do
+          ">" -> left > right
+          ">=" -> left >= right
+          "<" -> left < right
+          "<=" -> left <= right
+        end
+
+      _ ->
+        false
     end
   end
 
@@ -292,6 +289,14 @@ defmodule Mix.Tasks.Portfolio.List do
     do: Enum.take(entries, limit)
 
   defp apply_limit(entries, _), do: entries
+
+  defp output_entries(entries, format) do
+    case format do
+      "json" -> output_json(entries)
+      "compact" -> output_compact(entries)
+      _ -> output_table(entries)
+    end
+  end
 
   defp output_json(entries) do
     data =

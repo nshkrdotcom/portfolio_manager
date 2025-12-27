@@ -5,12 +5,13 @@ defmodule PortfolioManager.ViewsTest do
 
   use ExUnit.Case, async: true
 
+  alias PortfolioManager.Adapters.YAMLStorage
   alias PortfolioManager.Views
 
   setup do
     tmp_dir = Path.join(System.tmp_dir!(), "views_test_#{:rand.uniform(1_000_000)}")
     File.rm_rf!(tmp_dir)
-    PortfolioManager.Adapters.YAMLStorage.create(tmp_dir)
+    YAMLStorage.create(tmp_dir)
     {:ok, portfolio} = PortfolioManager.init(tmp_dir)
 
     on_exit(fn -> File.rm_rf!(tmp_dir) end)

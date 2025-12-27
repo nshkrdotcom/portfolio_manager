@@ -5,7 +5,7 @@ defmodule PortfolioManager.Domain.Context do
   Context includes the repo metadata plus notes, decisions, and computed data.
   """
 
-  alias PortfolioManager.Domain.{Repo, Relationship}
+  alias PortfolioManager.Domain.{Relationship, Repo}
 
   @type decision :: %{
           id: String.t(),
@@ -45,14 +45,13 @@ defmodule PortfolioManager.Domain.Context do
   """
   @spec from_map(map()) :: {:ok, t()} | {:error, term()}
   def from_map(attrs) when is_map(attrs) do
-    with {:ok, repo} <- Repo.new(Map.get(attrs, :repo) || Map.get(attrs, "repo") || attrs) do
+    with {:ok, repo} <- Repo.new(get_attr(attrs, :repo) || attrs) do
       context = %__MODULE__{
         repo: repo,
-        notes: Map.get(attrs, :notes) || Map.get(attrs, "notes"),
-        decisions:
-          normalize_decisions(Map.get(attrs, :decisions) || Map.get(attrs, "decisions") || []),
-        todos: Map.get(attrs, :todos) || Map.get(attrs, "todos") || [],
-        computed: Map.get(attrs, :computed) || Map.get(attrs, "computed") || %{}
+        notes: get_attr(attrs, :notes),
+        decisions: normalize_decisions(get_attr(attrs, :decisions) || []),
+        todos: get_attr(attrs, :todos) || [],
+        computed: get_attr(attrs, :computed) || %{}
       }
 
       {:ok, context}
@@ -150,6 +149,10 @@ defmodule PortfolioManager.Domain.Context do
   end
 
   # Private helpers
+
+  defp get_attr(map, key) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
 
   defp normalize_decisions(decisions) when is_list(decisions) do
     Enum.map(decisions, fn d ->

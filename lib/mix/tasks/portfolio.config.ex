@@ -45,33 +45,21 @@ defmodule Mix.Tasks.Portfolio.Config do
     if opts[:help] do
       show_help()
     else
-      case args do
-        ["show"] ->
-          show_config(opts)
-
-        ["get", key] ->
-          get_config(key, opts)
-
-        ["set", key, value] ->
-          set_config(key, value, opts)
-
-        ["list-dirs"] ->
-          list_dirs(opts)
-
-        ["add-dir", path] ->
-          add_dir(path, opts)
-
-        ["remove-dir", path] ->
-          remove_dir(path, opts)
-
-        [] ->
-          show_config(opts)
-
-        _ ->
-          show_help()
-          Exit.halt(:invalid_args)
-      end
+      dispatch_command(args, opts)
     end
+  end
+
+  defp dispatch_command(["show"], opts), do: show_config(opts)
+  defp dispatch_command(["get", key], opts), do: get_config(key, opts)
+  defp dispatch_command(["set", key, value], opts), do: set_config(key, value, opts)
+  defp dispatch_command(["list-dirs"], opts), do: list_dirs(opts)
+  defp dispatch_command(["add-dir", path], opts), do: add_dir(path, opts)
+  defp dispatch_command(["remove-dir", path], opts), do: remove_dir(path, opts)
+  defp dispatch_command([], opts), do: show_config(opts)
+
+  defp dispatch_command(_, _opts) do
+    show_help()
+    Exit.halt(:invalid_args)
   end
 
   defp show_config(opts) do
@@ -150,24 +138,27 @@ defmodule Mix.Tasks.Portfolio.Config do
     case YamlElixir.read_from_file(config_path) do
       {:ok, config} ->
         dirs = get_in(config, ["scan", "directories"]) || []
-
-        if opts[:json] do
-          Mix.shell().info(Jason.encode!(dirs, pretty: true))
-        else
-          if Enum.empty?(dirs) do
-            Mix.shell().info("No scan directories configured.")
-          else
-            Mix.shell().info("""
-            #{IO.ANSI.cyan()}Scan Directories#{IO.ANSI.reset()}
-
-            #{Enum.map_join(dirs, "\n", &("  * " <> &1))}
-            """)
-          end
-        end
+        output_dirs(dirs, opts)
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
         Exit.halt(:config)
+    end
+  end
+
+  defp output_dirs(dirs, opts) do
+    if opts[:json] do
+      Mix.shell().info(Jason.encode!(dirs, pretty: true))
+    else
+      if Enum.empty?(dirs) do
+        Mix.shell().info("No scan directories configured.")
+      else
+        Mix.shell().info("""
+        #{IO.ANSI.cyan()}Scan Directories#{IO.ANSI.reset()}
+
+        #{Enum.map_join(dirs, "\n", &("  * " <> &1))}
+        """)
+      end
     end
   end
 
@@ -178,27 +169,32 @@ defmodule Mix.Tasks.Portfolio.Config do
 
     case YamlElixir.read_from_file(config_path) do
       {:ok, config} ->
-        dirs = get_in(config, ["scan", "directories"]) || []
-
-        if expanded in dirs do
-          Mix.shell().info("Directory already in scan list: #{expanded}")
-        else
-          updated = put_in(config, ["scan", "directories"], dirs ++ [expanded])
-
-          case write_yaml(config_path, updated) do
-            :ok ->
-              Mix.shell().info(
-                "#{IO.ANSI.green()}Added #{expanded} to scan directories#{IO.ANSI.reset()}"
-              )
-
-            {:error, reason} ->
-              Mix.shell().error("Failed to save configuration: #{inspect(reason)}")
-          end
-        end
+        do_add_dir(config, config_path, expanded)
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
         Exit.halt(:config)
+    end
+  end
+
+  defp do_add_dir(config, config_path, expanded) do
+    dirs = get_in(config, ["scan", "directories"]) || []
+
+    if expanded in dirs do
+      Mix.shell().info("Directory already in scan list: #{expanded}")
+    else
+      updated = put_in(config, ["scan", "directories"], dirs ++ [expanded])
+      handle_yaml_write(config_path, updated, "Added #{expanded} to scan directories")
+    end
+  end
+
+  defp handle_yaml_write(config_path, updated, success_message) do
+    case write_yaml(config_path, updated) do
+      :ok ->
+        Mix.shell().info("#{IO.ANSI.green()}#{success_message}#{IO.ANSI.reset()}")
+
+      {:error, reason} ->
+        Mix.shell().error("Failed to save configuration: #{inspect(reason)}")
     end
   end
 
@@ -209,26 +205,21 @@ defmodule Mix.Tasks.Portfolio.Config do
 
     case YamlElixir.read_from_file(config_path) do
       {:ok, config} ->
-        dirs = get_in(config, ["scan", "directories"]) || []
-
-        if expanded not in dirs do
-          Mix.shell().info("Directory not in scan list: #{expanded}")
-        else
-          updated = put_in(config, ["scan", "directories"], Enum.reject(dirs, &(&1 == expanded)))
-
-          case write_yaml(config_path, updated) do
-            :ok ->
-              Mix.shell().info(
-                "#{IO.ANSI.green()}Removed #{expanded} from scan directories#{IO.ANSI.reset()}"
-              )
-
-            {:error, reason} ->
-              Mix.shell().error("Failed to save configuration: #{inspect(reason)}")
-          end
-        end
+        do_remove_dir(config, config_path, expanded)
 
       {:error, _} ->
         Mix.shell().error("Configuration file not found")
+    end
+  end
+
+  defp do_remove_dir(config, config_path, expanded) do
+    dirs = get_in(config, ["scan", "directories"]) || []
+
+    if expanded in dirs do
+      updated = put_in(config, ["scan", "directories"], Enum.reject(dirs, &(&1 == expanded)))
+      handle_yaml_write(config_path, updated, "Removed #{expanded} from scan directories")
+    else
+      Mix.shell().info("Directory not in scan list: #{expanded}")
     end
   end
 
@@ -320,19 +311,23 @@ defmodule Mix.Tasks.Portfolio.Config do
       map
       |> Enum.sort_by(fn {k, _} -> k end)
       |> Enum.map_join("", fn {k, v} ->
-        key = to_string(k)
-
-        cond do
-          is_map(v) and map_size(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 1)}"
-
-          is_list(v) and length(v) > 0 ->
-            "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 1)}"
-
-          true ->
-            "#{spaces}#{key}: #{String.trim(do_yaml_encode(v, indent))}\n"
-        end
+        encode_map_entry(k, v, spaces, indent)
       end)
+    end
+  end
+
+  defp encode_map_entry(k, v, spaces, indent) do
+    key = to_string(k)
+
+    cond do
+      is_map(v) and map_size(v) > 0 ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 1)}"
+
+      is_list(v) and v != [] ->
+        "#{spaces}#{key}:\n#{do_yaml_encode(v, indent + 1)}"
+
+      true ->
+        "#{spaces}#{key}: #{String.trim(do_yaml_encode(v, indent))}\n"
     end
   end
 

@@ -3,51 +3,60 @@ defmodule PortfolioManager.Workflow.Steps.ContextStep do
   Context step handlers for workflows.
   """
 
-  alias PortfolioManager.Workflow.Context
   alias PortfolioManager.Domain.Context, as: DomainContext
   alias PortfolioManager.Domain.Repo, as: DomainRepo
+  alias PortfolioManager.Workflow.Context
 
   @spec execute(map(), Context.t(), keyword()) :: {:ok, Context.t(), term()} | {:error, term()}
   def execute(step, context, opts) do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
     portfolio = Keyword.get(opts, :portfolio)
-
-    case action do
-      "get_repo_context" ->
-        repo_id = Map.get(inputs, "repo_id") || Map.get(inputs, :repo_id)
-        get_repo_context(portfolio, repo_id, context)
-
-      "get_related_context" ->
-        repo_id = Map.get(inputs, "repo_id") || Map.get(inputs, :repo_id)
-        depth = Map.get(inputs, "depth") || Map.get(inputs, :depth) || 1
-        get_related_context(portfolio, repo_id, depth, context)
-
-      "get_portfolio_context" ->
-        get_portfolio_context(portfolio, context)
-
-      "search_context" ->
-        query = Map.get(inputs, "query") || Map.get(inputs, :query)
-        search_context(portfolio, query, context)
-
-      "aggregate" ->
-        field = Map.get(inputs, "field") || Map.get(inputs, :field)
-        repos = Map.get(inputs, "repos") || Map.get(inputs, :repos) || []
-        aggregate(field, repos, context)
-
-      "validate_relationships" ->
-        {:ok, context, %{issues: []}}
-
-      "set_var" ->
-        key = Map.get(inputs, "key") || Map.get(inputs, :key)
-        value = Map.get(inputs, "value") || Map.get(inputs, :value)
-        new_ctx = Context.set_var(context, to_string(key), value)
-        {:ok, new_ctx, %{value: value}}
-
-      _ ->
-        {:error, "Unknown context action: #{action}"}
-    end
+    dispatch_action(action, inputs, portfolio, context)
   end
+
+  defp dispatch_action("get_repo_context", inputs, portfolio, context) do
+    repo_id = get_input(inputs, "repo_id")
+    get_repo_context(portfolio, repo_id, context)
+  end
+
+  defp dispatch_action("get_related_context", inputs, portfolio, context) do
+    repo_id = get_input(inputs, "repo_id")
+    depth = get_input(inputs, "depth") || 1
+    get_related_context(portfolio, repo_id, depth, context)
+  end
+
+  defp dispatch_action("get_portfolio_context", _inputs, portfolio, context) do
+    get_portfolio_context(portfolio, context)
+  end
+
+  defp dispatch_action("search_context", inputs, portfolio, context) do
+    query = get_input(inputs, "query")
+    search_context(portfolio, query, context)
+  end
+
+  defp dispatch_action("aggregate", inputs, _portfolio, context) do
+    field = get_input(inputs, "field")
+    repos = get_input(inputs, "repos") || []
+    aggregate(field, repos, context)
+  end
+
+  defp dispatch_action("validate_relationships", _inputs, _portfolio, context) do
+    {:ok, context, %{issues: []}}
+  end
+
+  defp dispatch_action("set_var", inputs, _portfolio, context) do
+    key = get_input(inputs, "key")
+    value = get_input(inputs, "value")
+    new_ctx = Context.set_var(context, to_string(key), value)
+    {:ok, new_ctx, %{value: value}}
+  end
+
+  defp dispatch_action(action, _inputs, _portfolio, _context) do
+    {:error, "Unknown context action: #{action}"}
+  end
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
 
   defp get_repo_context(nil, _repo_id, _context), do: {:error, "Portfolio not available"}
   defp get_repo_context(_portfolio, nil, _context), do: {:error, "repo_id required"}
@@ -72,19 +81,9 @@ defmodule PortfolioManager.Workflow.Steps.ContextStep do
   defp get_related_context(portfolio, repo_id, _depth, context) do
     case PortfolioManager.get_context(portfolio, repo_id) do
       {:ok, repo_context} ->
-        related_ids =
-          PortfolioManager.get_relationships(portfolio, repo_id)
-          |> Enum.map(fn rel -> if rel.from == repo_id, do: rel.to, else: rel.from end)
-          |> Enum.uniq()
+        related_ids = extract_related_ids(portfolio, repo_id)
 
-        related_contexts =
-          related_ids
-          |> Enum.flat_map(fn id ->
-            case PortfolioManager.get_context(portfolio, id) do
-              {:ok, ctx} -> [DomainContext.to_map(ctx)]
-              _ -> []
-            end
-          end)
+        related_contexts = fetch_related_contexts(portfolio, related_ids)
 
         result = %{
           repo: DomainContext.to_map(repo_context),
@@ -137,6 +136,21 @@ defmodule PortfolioManager.Workflow.Steps.ContextStep do
       end)
 
     {:ok, context, %{values: values}}
+  end
+
+  defp extract_related_ids(portfolio, repo_id) do
+    PortfolioManager.get_relationships(portfolio, repo_id)
+    |> Enum.map(fn rel -> if rel.from == repo_id, do: rel.to, else: rel.from end)
+    |> Enum.uniq()
+  end
+
+  defp fetch_related_contexts(portfolio, related_ids) do
+    Enum.flat_map(related_ids, fn id ->
+      case PortfolioManager.get_context(portfolio, id) do
+        {:ok, ctx} -> [DomainContext.to_map(ctx)]
+        _ -> []
+      end
+    end)
   end
 
   defp fetch_relationships(portfolio) do

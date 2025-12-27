@@ -91,9 +91,7 @@ defmodule PortfolioManager.Graph do
         # No clear roots, just show all nodes
         render_flat(graph)
       else
-        roots
-        |> Enum.map(&render_tree(graph, &1, max_depth))
-        |> Enum.join("\n\n")
+        Enum.map_join(roots, "\n\n", &render_tree(graph, &1, max_depth))
       end
     end
   end
@@ -104,17 +102,13 @@ defmodule PortfolioManager.Graph do
   @spec to_dot(t()) :: String.t()
   def to_dot(%__MODULE__{} = graph) do
     nodes_str =
-      graph.nodes
-      |> Enum.map(fn node -> "  \"#{node}\";" end)
-      |> Enum.join("\n")
+      Enum.map_join(graph.nodes, "\n", fn node -> "  \"#{node}\";" end)
 
     edges_str =
-      graph.edges
-      |> Enum.map(fn edge ->
+      Enum.map_join(graph.edges, "\n", fn edge ->
         label = to_string(edge.type)
         "  \"#{edge.from}\" -> \"#{edge.to}\" [label=\"#{label}\"];"
       end)
-      |> Enum.join("\n")
 
     """
     digraph portfolio {
@@ -284,7 +278,7 @@ defmodule PortfolioManager.Graph do
   defp render_flat(graph) do
     graph.nodes
     |> Enum.sort()
-    |> Enum.map(fn node ->
+    |> Enum.map_join("\n", fn node ->
       children = Map.get(graph.adjacency, node, [])
 
       if Enum.empty?(children) do
@@ -293,7 +287,6 @@ defmodule PortfolioManager.Graph do
         "#{node} -> [#{Enum.join(children, ", ")}]"
       end
     end)
-    |> Enum.join("\n")
   end
 
   defp bfs(graph, from, to) do
@@ -373,23 +366,18 @@ defmodule PortfolioManager.Graph do
 
       {{:value, node}, rest} ->
         result = [node | result]
-
         neighbors = Map.get(graph.adjacency, node, [])
-
-        {new_queue, new_in_degree} =
-          Enum.reduce(neighbors, {rest, in_degree}, fn neighbor, {q, deg} ->
-            new_deg = Map.get(deg, neighbor, 1) - 1
-            deg = Map.put(deg, neighbor, new_deg)
-
-            if new_deg == 0 do
-              {:queue.in(neighbor, q), deg}
-            else
-              {q, deg}
-            end
-          end)
-
+        {new_queue, new_in_degree} = update_neighbor_degrees(neighbors, rest, in_degree)
         do_kahn_sort(graph, new_queue, new_in_degree, result)
     end
+  end
+
+  defp update_neighbor_degrees(neighbors, queue, in_degree) do
+    Enum.reduce(neighbors, {queue, in_degree}, fn neighbor, {q, deg} ->
+      new_deg = Map.get(deg, neighbor, 1) - 1
+      deg = Map.put(deg, neighbor, new_deg)
+      if new_deg == 0, do: {:queue.in(neighbor, q), deg}, else: {q, deg}
+    end)
   end
 
   defp do_reachable(_graph, [], visited), do: visited

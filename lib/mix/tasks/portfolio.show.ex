@@ -59,24 +59,31 @@ defmodule Mix.Tasks.Portfolio.Show do
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        case PortfolioManager.get_context(portfolio, repo_id) do
-          {:ok, context} ->
-            relationships = PortfolioManager.get_relationships(portfolio, repo_id)
-
-            if opts[:json] do
-              output_json(context, relationships)
-            else
-              output_formatted(context, relationships, opts[:section], opts[:related])
-            end
-
-          {:error, :not_found} ->
-            Mix.shell().error("Repository '#{repo_id}' not found.")
-            Exit.halt(:not_found)
-        end
+        handle_show_repo(portfolio, repo_id, opts)
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
         Exit.halt(:config)
+    end
+  end
+
+  defp handle_show_repo(portfolio, repo_id, opts) do
+    case PortfolioManager.get_context(portfolio, repo_id) do
+      {:ok, context} ->
+        relationships = PortfolioManager.get_relationships(portfolio, repo_id)
+        output_repo_info(context, relationships, opts)
+
+      {:error, :not_found} ->
+        Mix.shell().error("Repository '#{repo_id}' not found.")
+        Exit.halt(:not_found)
+    end
+  end
+
+  defp output_repo_info(context, relationships, opts) do
+    if opts[:json] do
+      output_json(context, relationships)
+    else
+      output_formatted(context, relationships, opts[:section], opts[:related])
     end
   end
 
@@ -201,27 +208,10 @@ defmodule Mix.Tasks.Portfolio.Show do
   defp framework_str(framework), do: "Framework:   #{framework}"
 
   defp stats_summary(computed) do
-    commit_count = Map.get(computed, "commit_count_30d") || Map.get(computed, :commit_count_30d)
-    contributors = Map.get(computed, "contributors") || Map.get(computed, :contributors) || []
-    last_commit = Map.get(computed, "last_commit") || Map.get(computed, :last_commit) || %{}
-
-    last_commit_display =
-      case last_commit do
-        %{"date" => date, "sha" => sha} when is_binary(date) and is_binary(sha) ->
-          "#{date} (#{String.slice(sha, 0, 7)})"
-
-        %{"date" => date} when is_binary(date) ->
-          date
-
-        %{date: date, sha: sha} when is_binary(date) and is_binary(sha) ->
-          "#{date} (#{String.slice(sha, 0, 7)})"
-
-        %{date: date} when is_binary(date) ->
-          date
-
-        _ ->
-          "N/A"
-      end
+    commit_count = get_computed_value(computed, "commit_count_30d", :commit_count_30d)
+    contributors = get_computed_value(computed, "contributors", :contributors) || []
+    last_commit = get_computed_value(computed, "last_commit", :last_commit) || %{}
+    last_commit_display = format_last_commit(last_commit)
 
     """
     Stats:
@@ -230,6 +220,25 @@ defmodule Mix.Tasks.Portfolio.Show do
       Contributors:     #{length(contributors)}
     """
   end
+
+  defp get_computed_value(computed, string_key, atom_key) do
+    Map.get(computed, string_key) || Map.get(computed, atom_key)
+  end
+
+  defp format_last_commit(%{"date" => date, "sha" => sha})
+       when is_binary(date) and is_binary(sha) do
+    "#{date} (#{String.slice(sha, 0, 7)})"
+  end
+
+  defp format_last_commit(%{"date" => date}) when is_binary(date), do: date
+
+  defp format_last_commit(%{date: date, sha: sha}) when is_binary(date) and is_binary(sha) do
+    "#{date} (#{String.slice(sha, 0, 7)})"
+  end
+
+  defp format_last_commit(%{date: date}) when is_binary(date), do: date
+
+  defp format_last_commit(_), do: "N/A"
 
   defp dependencies_summary(computed) do
     deps = Map.get(computed, "dependencies") || Map.get(computed, :dependencies) || %{}
@@ -250,27 +259,29 @@ defmodule Mix.Tasks.Portfolio.Show do
       |> Enum.map(&format_relationship(&1, repo_id))
       |> Enum.reject(&is_nil/1)
 
-    related =
-      if related? do
-        related_ids =
-          relationships
-          |> Enum.map(fn rel -> if rel.from == repo_id, do: rel.to, else: rel.from end)
-          |> Enum.uniq()
-
-        if related_ids == [] do
-          ""
-        else
-          "Related Repos:\n  " <> Enum.join(related_ids, ", ")
-        end
-      else
-        ""
-      end
+    related = format_related_repos(relationships, repo_id, related?)
 
     """
     Relationships:
     #{Enum.map_join(lines, "\n", fn line -> "  #{line}" end)}
     #{related}
     """
+  end
+
+  defp format_related_repos(_relationships, _repo_id, nil), do: ""
+  defp format_related_repos(_relationships, _repo_id, false), do: ""
+
+  defp format_related_repos(relationships, repo_id, true) do
+    related_ids =
+      relationships
+      |> Enum.map(fn rel -> if rel.from == repo_id, do: rel.to, else: rel.from end)
+      |> Enum.uniq()
+
+    if related_ids == [] do
+      ""
+    else
+      "Related Repos:\n  " <> Enum.join(related_ids, ", ")
+    end
   end
 
   defp format_relationship(rel, repo_id) do

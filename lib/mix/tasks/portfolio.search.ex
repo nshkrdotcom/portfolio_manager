@@ -65,12 +65,7 @@ defmodule Mix.Tasks.Portfolio.Search do
       {:ok, portfolio} ->
         search_opts = build_search_opts(opts)
         results = PortfolioManager.search(portfolio, query, search_opts)
-
-        if opts[:json] do
-          output_json(results)
-        else
-          output_formatted(results, query)
-        end
+        display_results(results, query, opts)
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
@@ -99,6 +94,14 @@ defmodule Mix.Tasks.Portfolio.Search do
     |> Keyword.put(:case_sensitive, opts[:case_sensitive] || false)
   end
 
+  defp display_results(results, query, opts) do
+    if opts[:json] do
+      output_json(results)
+    else
+      output_formatted(results, query)
+    end
+  end
+
   defp output_json(results) do
     data =
       Enum.map(results, fn repo ->
@@ -120,21 +123,22 @@ defmodule Mix.Tasks.Portfolio.Search do
     else
       Mix.shell().info("Found #{length(results)} matches for '#{query}':")
       Mix.shell().info("")
-
-      Enum.each(results, fn repo ->
-        Mix.shell().info(
-          "  #{IO.ANSI.bright()}#{repo.id}#{IO.ANSI.reset()} (#{repo.type}, #{repo.language})"
-        )
-
-        if repo.purpose do
-          purpose_preview = String.slice(repo.purpose, 0, 60)
-          Mix.shell().info("    #{purpose_preview}...")
-        end
-
-        Mix.shell().info("    #{repo.path}")
-        Mix.shell().info("")
-      end)
+      Enum.each(results, &display_repo_result/1)
     end
+  end
+
+  defp display_repo_result(repo) do
+    Mix.shell().info(
+      "  #{IO.ANSI.bright()}#{repo.id}#{IO.ANSI.reset()} (#{repo.type}, #{repo.language})"
+    )
+
+    if repo.purpose do
+      purpose_preview = String.slice(repo.purpose, 0, 60)
+      Mix.shell().info("    #{purpose_preview}...")
+    end
+
+    Mix.shell().info("    #{repo.path}")
+    Mix.shell().info("")
   end
 
   defp show_help do

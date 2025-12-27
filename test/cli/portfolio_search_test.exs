@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.SearchTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Search
+
   setup do
     portfolio_path = create_test_portfolio()
 
@@ -35,7 +37,7 @@ defmodule Mix.Tasks.Portfolio.SearchTest do
 
     output =
       capture_io(fn ->
-        Mix.Tasks.Portfolio.Search.run([
+        Search.run([
           "^alp",
           "--regex",
           "--portfolio-dir",
@@ -51,7 +53,7 @@ defmodule Mix.Tasks.Portfolio.SearchTest do
 
     output =
       capture_io(fn ->
-        Mix.Tasks.Portfolio.Search.run([
+        Search.run([
           "beta",
           "--field",
           "id",

@@ -23,8 +23,8 @@ defmodule Mix.Tasks.Portfolio.Review do
 
   use Mix.Task
 
-  alias PortfolioManager.Detection.{Agentic, ReviewStore}
   alias PortfolioManager.CLI.Exit
+  alias PortfolioManager.Detection.{Agentic, ReviewStore}
 
   @impl Mix.Task
   def run(args) do
@@ -53,24 +53,32 @@ defmodule Mix.Tasks.Portfolio.Review do
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        {:ok, items} = ReviewStore.list_pending(portfolio)
-        filtered = filter_items(items, repo_id)
-
-        if Enum.empty?(filtered) do
-          Mix.shell().info("No pending detections to review.")
-        else
-          threshold = parse_threshold(opts[:threshold])
-
-          if opts[:accept_all] do
-            accept_all(portfolio, filtered, threshold, opts[:json])
-          else
-            interactive_review(portfolio, filtered, opts[:json])
-          end
-        end
+        handle_review_pending(portfolio, repo_id, opts)
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
         Exit.halt(:config)
+    end
+  end
+
+  defp handle_review_pending(portfolio, repo_id, opts) do
+    {:ok, items} = ReviewStore.list_pending(portfolio)
+    filtered = filter_items(items, repo_id)
+
+    if Enum.empty?(filtered) do
+      Mix.shell().info("No pending detections to review.")
+    else
+      process_review_items(portfolio, filtered, opts)
+    end
+  end
+
+  defp process_review_items(portfolio, filtered, opts) do
+    threshold = parse_threshold(opts[:threshold])
+
+    if opts[:accept_all] do
+      accept_all(portfolio, filtered, threshold, opts[:json])
+    else
+      interactive_review(portfolio, filtered, opts[:json])
     end
   end
 
@@ -118,45 +126,9 @@ defmodule Mix.Tasks.Portfolio.Review do
 
   defp interactive_review(portfolio, items, json?) do
     {accepted, rejected, pending} =
-      Enum.reduce(items, {0, 0, []}, fn item, {acc_ok, acc_reject, acc_pending} ->
+      Enum.reduce(items, {0, 0, []}, fn item, acc ->
         display_item(item)
-
-        case prompt_action() do
-          :accept ->
-            case Agentic.apply_review_item(portfolio, item) do
-              :ok ->
-                Mix.shell().info("✓ Accepted")
-                {acc_ok + 1, acc_reject, acc_pending}
-
-              {:error, reason} ->
-                Mix.shell().error("Failed: #{inspect(reason)}")
-                {acc_ok, acc_reject, [item | acc_pending]}
-            end
-
-          :reject ->
-            Mix.shell().info("✗ Rejected")
-            {acc_ok, acc_reject + 1, acc_pending}
-
-          :modify ->
-            case modify_item(item) do
-              {:ok, updated_item} ->
-                case Agentic.apply_review_item(portfolio, updated_item) do
-                  :ok ->
-                    Mix.shell().info("✓ Accepted (modified)")
-                    {acc_ok + 1, acc_reject, acc_pending}
-
-                  {:error, reason} ->
-                    Mix.shell().error("Failed: #{inspect(reason)}")
-                    {acc_ok, acc_reject, [item | acc_pending]}
-                end
-
-              :skip ->
-                {acc_ok, acc_reject, [item | acc_pending]}
-            end
-
-          :skip ->
-            {acc_ok, acc_reject, [item | acc_pending]}
-        end
+        handle_review_action(portfolio, item, prompt_action(), acc)
       end)
 
     :ok = ReviewStore.save_pending(portfolio, Enum.reverse(pending))
@@ -180,6 +152,49 @@ defmodule Mix.Tasks.Portfolio.Review do
       )
     else
       Mix.shell().info("Review complete. Accepted: #{accepted}. Rejected: #{rejected}.")
+    end
+  end
+
+  defp handle_review_action(portfolio, item, :accept, {acc_ok, acc_reject, acc_pending}) do
+    case Agentic.apply_review_item(portfolio, item) do
+      :ok ->
+        Mix.shell().info("✓ Accepted")
+        {acc_ok + 1, acc_reject, acc_pending}
+
+      {:error, reason} ->
+        Mix.shell().error("Failed: #{inspect(reason)}")
+        {acc_ok, acc_reject, [item | acc_pending]}
+    end
+  end
+
+  defp handle_review_action(_portfolio, _item, :reject, {acc_ok, acc_reject, acc_pending}) do
+    Mix.shell().info("✗ Rejected")
+    {acc_ok, acc_reject + 1, acc_pending}
+  end
+
+  defp handle_review_action(portfolio, item, :modify, {acc_ok, acc_reject, acc_pending}) do
+    case modify_item(item) do
+      {:ok, updated_item} ->
+        apply_modified_item(portfolio, item, updated_item, {acc_ok, acc_reject, acc_pending})
+
+      :skip ->
+        {acc_ok, acc_reject, [item | acc_pending]}
+    end
+  end
+
+  defp handle_review_action(_portfolio, item, :skip, {acc_ok, acc_reject, acc_pending}) do
+    {acc_ok, acc_reject, [item | acc_pending]}
+  end
+
+  defp apply_modified_item(portfolio, item, updated_item, {acc_ok, acc_reject, acc_pending}) do
+    case Agentic.apply_review_item(portfolio, updated_item) do
+      :ok ->
+        Mix.shell().info("✓ Accepted (modified)")
+        {acc_ok + 1, acc_reject, acc_pending}
+
+      {:error, reason} ->
+        Mix.shell().error("Failed: #{inspect(reason)}")
+        {acc_ok, acc_reject, [item | acc_pending]}
     end
   end
 

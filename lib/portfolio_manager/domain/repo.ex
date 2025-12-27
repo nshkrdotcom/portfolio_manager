@@ -91,20 +91,20 @@ defmodule PortfolioManager.Domain.Repo do
     now = DateTime.utc_now()
 
     repo = %__MODULE__{
-      id: Map.get(attrs, :id) || Map.get(attrs, "id"),
-      name: Map.get(attrs, :name) || Map.get(attrs, "name"),
-      path: Map.get(attrs, :path) || Map.get(attrs, "path"),
-      remote_url: Map.get(attrs, :remote_url) || Map.get(attrs, "remote_url"),
-      type: normalize_type(Map.get(attrs, :type) || Map.get(attrs, "type")),
-      status: normalize_status(Map.get(attrs, :status) || Map.get(attrs, "status")),
-      language: normalize_atom(Map.get(attrs, :language) || Map.get(attrs, "language")),
-      framework: Map.get(attrs, :framework) || Map.get(attrs, "framework"),
-      purpose: Map.get(attrs, :purpose) || Map.get(attrs, "purpose"),
-      tags: Map.get(attrs, :tags) || Map.get(attrs, "tags") || [],
-      priority: normalize_priority(Map.get(attrs, :priority) || Map.get(attrs, "priority")),
-      port: normalize_port(Map.get(attrs, :port) || Map.get(attrs, "port")),
-      created_at: Map.get(attrs, :created_at) || now,
-      updated_at: Map.get(attrs, :updated_at) || now
+      id: get_attr(attrs, :id),
+      name: get_attr(attrs, :name),
+      path: get_attr(attrs, :path),
+      remote_url: get_attr(attrs, :remote_url),
+      type: normalize_type(get_attr(attrs, :type)),
+      status: normalize_status(get_attr(attrs, :status)),
+      language: normalize_atom(get_attr(attrs, :language)),
+      framework: get_attr(attrs, :framework),
+      purpose: get_attr(attrs, :purpose),
+      tags: get_attr(attrs, :tags) || [],
+      priority: normalize_priority(get_attr(attrs, :priority)),
+      port: normalize_port(get_attr(attrs, :port)),
+      created_at: get_attr(attrs, :created_at) || now,
+      updated_at: get_attr(attrs, :updated_at) || now
     }
 
     validate(repo)
@@ -185,12 +185,16 @@ defmodule PortfolioManager.Domain.Repo do
       "tags" => repo.tags,
       "priority" => repo.priority && to_string(repo.priority),
       "port" => repo.port,
-      "created_at" => repo.created_at && DateTime.to_iso8601(repo.created_at),
-      "updated_at" => repo.updated_at && DateTime.to_iso8601(repo.updated_at)
+      "created_at" => format_datetime(repo.created_at),
+      "updated_at" => format_datetime(repo.updated_at)
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  defp format_datetime(nil), do: nil
+  defp format_datetime(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp format_datetime(str) when is_binary(str), do: str
 
   @doc """
   Generates an ID from a path or name.
@@ -206,6 +210,10 @@ defmodule PortfolioManager.Domain.Repo do
   end
 
   # Private helpers
+
+  defp get_attr(map, key) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
 
   defp normalize_type(nil), do: :unknown
   defp normalize_type(type) when is_atom(type) and type in @valid_types, do: type

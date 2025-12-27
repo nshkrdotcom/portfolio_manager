@@ -26,8 +26,8 @@ defmodule Mix.Tasks.Portfolio.Graph do
 
   use Mix.Task
 
-  alias PortfolioManager.Graph
   alias PortfolioManager.CLI.Exit
+  alias PortfolioManager.Graph
 
   @impl Mix.Task
   def run(args) do

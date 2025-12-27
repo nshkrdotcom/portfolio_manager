@@ -8,15 +8,15 @@ defmodule PortfolioManager.Workflow.Step do
   alias PortfolioManager.Workflow.Context
 
   alias PortfolioManager.Workflow.Steps.{
+    AgentStep,
+    ContextStep,
+    ControlStep,
+    DetectionStep,
+    FileStep,
     GitStep,
     ShellStep,
-    AgentStep,
-    FileStep,
-    ContextStep,
     UpdateStep,
-    ControlStep,
-    WorkflowStep,
-    DetectionStep
+    WorkflowStep
   }
 
   @type step :: map()

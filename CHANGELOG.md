@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-12-26
+
 ### Added
 
+- Doc ingestion pipeline for repo docs (`docs/**/*.md`) with per-repo index and summaries
+- pgvector-backed vector store with Ecto/Postgrex integration and auto schema creation
+- `mix portfolio.docs ingest` and `mix portfolio.docs search` CLI tasks for doc indexing and search
+- Doc ingestion configuration keys (include/exclude patterns, chunking, embed batch size, delete_existing)
+- Developer plan document in `docs/20251225/plan.md`
+- Ecto repo registration and migration for the pgvector-backed `rag_chunks` table
 - **CLI Tool**: Complete set of 14 mix tasks for portfolio management
   - `mix portfolio.init` - Initialize a new portfolio
   - `mix portfolio.scan` - Discover repositories in directories
@@ -103,6 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Semantic search now includes per-repo doc summaries in the searchable content
+- Default embedding dimensions set to 3072 for Gemini embeddings
+- Default config includes doc ingestion and pgvector settings
 - Notes now persist to separate markdown files instead of YAML
 - Decisions persist to individual markdown files in ADR format
 - Default portfolio path now `~/portfolio` (override with `PORTFOLIO_DIR`)
@@ -112,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Ensure Req/Ecto dependencies are started before embedding and vector store operations
 - Context not being created during repository scan
 - RAG provider instantiation (proper struct creation)
 - Optional provider support (Claude, Codex) without compile warnings

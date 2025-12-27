@@ -25,15 +25,11 @@ defmodule PortfolioManager.CLI.History do
     if trimmed == "" do
       history
     else
-      case File.mkdir_p(Path.dirname(path)) do
-        :ok ->
-          case File.write(path, trimmed <> "\n", [:append]) do
-            :ok -> history ++ [trimmed]
-            {:error, _} -> history
-          end
-
-        {:error, _} ->
-          history
+      with :ok <- File.mkdir_p(Path.dirname(path)),
+           :ok <- File.write(path, trimmed <> "\n", [:append]) do
+        history ++ [trimmed]
+      else
+        {:error, _} -> history
       end
     end
   end

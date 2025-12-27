@@ -6,6 +6,8 @@ defmodule PortfolioManager.Detection.Agentic do
   when deterministic detection is insufficient.
   """
 
+  alias PortfolioManager.Detection.ReviewStore
+
   @doc """
   Detects the purpose of a repository from its content.
 
@@ -103,9 +105,9 @@ defmodule PortfolioManager.Detection.Agentic do
     other_repos = PortfolioManager.list_repos(portfolio)
 
     repo_list =
-      other_repos
-      |> Enum.map(fn r -> "- #{r.id}: #{r.name} (#{r.type}, #{r.language})" end)
-      |> Enum.join("\n")
+      Enum.map_join(other_repos, "\n", fn r ->
+        "- #{r.id}: #{r.name} (#{r.type}, #{r.language})"
+      end)
 
     prompt = """
     Analyze this repository and find relationships to other projects.
@@ -190,39 +192,31 @@ defmodule PortfolioManager.Detection.Agentic do
   """
   @spec analyze(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def analyze(repo_path, opts \\ []) do
-    results = %{}
-
     results =
-      case detect_purpose(repo_path, opts) do
-        {:ok, purpose} -> Map.put(results, :purpose, purpose)
-        _ -> results
-      end
-
-    results =
-      case detect_type(repo_path, opts) do
-        {:ok, type} -> Map.put(results, :type, type)
-        _ -> results
-      end
-
-    results =
-      case detect_status(repo_path, opts) do
-        {:ok, status} -> Map.put(results, :status, status)
-        _ -> results
-      end
-
-    results =
-      case opts[:portfolio] do
-        nil ->
-          results
-
-        portfolio ->
-          case detect_relationships(repo_path, portfolio, opts) do
-            {:ok, rels} -> Map.put(results, :relationships, rels)
-            _ -> results
-          end
-      end
+      %{}
+      |> maybe_add_detection(:purpose, detect_purpose(repo_path, opts))
+      |> maybe_add_detection(:type, detect_type(repo_path, opts))
+      |> maybe_add_detection(:status, detect_status(repo_path, opts))
+      |> maybe_add_relationships(repo_path, opts)
 
     {:ok, results}
+  end
+
+  defp maybe_add_detection(results, key, {:ok, value}), do: Map.put(results, key, value)
+  defp maybe_add_detection(results, _key, _), do: results
+
+  defp maybe_add_relationships(results, repo_path, opts) do
+    case opts[:portfolio] do
+      nil ->
+        results
+
+      portfolio ->
+        maybe_add_detection(
+          results,
+          :relationships,
+          detect_relationships(repo_path, portfolio, opts)
+        )
+    end
   end
 
   @doc """
@@ -250,7 +244,7 @@ defmodule PortfolioManager.Detection.Agentic do
           end
         end)
 
-      :ok = PortfolioManager.Detection.ReviewStore.append_pending(portfolio, still_pending)
+      :ok = ReviewStore.append_pending(portfolio, still_pending)
 
       {:ok, %{applied: applied, pending: length(still_pending)}}
     end
@@ -417,78 +411,83 @@ defmodule PortfolioManager.Detection.Agentic do
   defp build_review_items(repo_id, results) do
     timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
 
-    base = fn field, value, confidence, reasoning ->
-      %{
-        "id" => build_review_id(repo_id, field),
-        "repo_id" => repo_id,
-        "field" => field,
-        "value" => value,
-        "confidence" => confidence,
-        "reasoning" => reasoning,
-        "status" => "pending",
-        "created_at" => timestamp
-      }
-    end
+    []
+    |> maybe_add_purpose_item(repo_id, results, timestamp)
+    |> maybe_add_type_item(repo_id, results, timestamp)
+    |> maybe_add_status_item(repo_id, results, timestamp)
+    |> maybe_add_relationship_items(repo_id, results, timestamp)
+    |> Enum.reverse()
+  end
 
-    items = []
+  defp build_review_item(repo_id, field, value, confidence, reasoning, timestamp) do
+    %{
+      "id" => build_review_id(repo_id, field),
+      "repo_id" => repo_id,
+      "field" => field,
+      "value" => value,
+      "confidence" => confidence,
+      "reasoning" => reasoning,
+      "status" => "pending",
+      "created_at" => timestamp
+    }
+  end
 
-    items =
-      case Map.get(results, :purpose) do
-        %{purpose: purpose, confidence: confidence} ->
-          [base.("purpose", purpose, confidence, nil) | items]
+  defp maybe_add_purpose_item(
+         items,
+         repo_id,
+         %{purpose: %{purpose: purpose, confidence: confidence}},
+         timestamp
+       ) do
+    [build_review_item(repo_id, "purpose", purpose, confidence, nil, timestamp) | items]
+  end
 
-        _ ->
-          items
-      end
+  defp maybe_add_purpose_item(items, _repo_id, _results, _timestamp), do: items
 
-    items =
-      case Map.get(results, :type) do
-        %{type: type, confidence: confidence, reasoning: reasoning} ->
-          [base.("type", to_string(type), confidence, reasoning) | items]
+  defp maybe_add_type_item(
+         items,
+         repo_id,
+         %{type: %{type: type, confidence: confidence} = type_result},
+         timestamp
+       ) do
+    reasoning = Map.get(type_result, :reasoning)
 
-        %{type: type, confidence: confidence} ->
-          [base.("type", to_string(type), confidence, nil) | items]
+    [
+      build_review_item(repo_id, "type", to_string(type), confidence, reasoning, timestamp)
+      | items
+    ]
+  end
 
-        _ ->
-          items
-      end
+  defp maybe_add_type_item(items, _repo_id, _results, _timestamp), do: items
 
-    items =
-      case Map.get(results, :status) do
-        %{status: status, confidence: confidence, reasoning: reasoning} ->
-          [base.("status", to_string(status), confidence, reasoning) | items]
+  defp maybe_add_status_item(
+         items,
+         repo_id,
+         %{status: %{status: status, confidence: confidence} = status_result},
+         timestamp
+       ) do
+    reasoning = Map.get(status_result, :reasoning)
 
-        %{status: status, confidence: confidence} ->
-          [base.("status", to_string(status), confidence, nil) | items]
+    [
+      build_review_item(repo_id, "status", to_string(status), confidence, reasoning, timestamp)
+      | items
+    ]
+  end
 
-        _ ->
-          items
-      end
+  defp maybe_add_status_item(items, _repo_id, _results, _timestamp), do: items
 
-    items =
-      case Map.get(results, :relationships) do
-        rels when is_list(rels) ->
-          rel_items =
-            Enum.map(rels, fn rel ->
-              base.(
-                "relationship",
-                %{
-                  "from" => repo_id,
-                  "to" => rel.to,
-                  "type" => to_string(rel.type)
-                },
-                Map.get(rel, :confidence, 0.7),
-                Map.get(rel, :reasoning)
-              )
-            end)
+  defp maybe_add_relationship_items(items, repo_id, %{relationships: rels}, timestamp)
+       when is_list(rels) do
+    rel_items = Enum.map(rels, &build_relationship_item(repo_id, &1, timestamp))
+    rel_items ++ items
+  end
 
-          rel_items ++ items
+  defp maybe_add_relationship_items(items, _repo_id, _results, _timestamp), do: items
 
-        _ ->
-          items
-      end
-
-    Enum.reverse(items)
+  defp build_relationship_item(repo_id, rel, timestamp) do
+    value = %{"from" => repo_id, "to" => rel.to, "type" => to_string(rel.type)}
+    confidence = Map.get(rel, :confidence, 0.7)
+    reasoning = Map.get(rel, :reasoning)
+    build_review_item(repo_id, "relationship", value, confidence, reasoning, timestamp)
   end
 
   defp build_review_id(repo_id, field) do

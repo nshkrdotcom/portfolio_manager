@@ -29,7 +29,11 @@ defmodule Mix.Tasks.Portfolio.Scan do
 
   use Mix.Task
 
+  alias Mix.Tasks.Portfolio.Review
+  alias PortfolioManager.Adapters.FileDetector
+  alias PortfolioManager.Adapters.LocalGit
   alias PortfolioManager.CLI.Exit
+  alias PortfolioManager.Detection.Agentic
 
   @dialyzer {:nowarn_function, [run: 1, dry_run_scan: 2, do_scan: 6, resolve_directories: 2]}
 
@@ -51,38 +55,43 @@ defmodule Mix.Tasks.Portfolio.Scan do
         aliases: [d: :portfolio_dir]
       )
 
-    help? = Keyword.get(opts, :help, false)
-    dry_run? = Keyword.get(opts, :dry_run, false)
-
-    case help? do
-      true ->
-        show_help()
-
-      _ ->
-        portfolio_path = opts[:portfolio_dir] || default_portfolio_path()
-        config = load_config(portfolio_path)
-        directories = resolve_directories(dirs, config)
-        exclude = scan_exclude_patterns(config)
-
-        case PortfolioManager.init(portfolio_path) do
-          {:ok, portfolio} ->
-            case dry_run? do
-              true ->
-                dry_run_scan(directories, exclude)
-
-              _ ->
-                do_scan(portfolio, portfolio_path, directories, exclude, config, opts)
-            end
-
-          {:error, :not_initialized} ->
-            Mix.shell().error("""
-            Portfolio not found at #{portfolio_path}
-            Run `mix portfolio.init` first.
-            """)
-
-            Exit.halt(:config)
-        end
+    if Keyword.get(opts, :help, false) do
+      show_help()
+    else
+      execute_scan(opts, dirs)
     end
+  end
+
+  defp execute_scan(opts, dirs) do
+    portfolio_path = opts[:portfolio_dir] || default_portfolio_path()
+    config = load_config(portfolio_path)
+    directories = resolve_directories(dirs, config)
+    exclude = scan_exclude_patterns(config)
+
+    case PortfolioManager.init(portfolio_path) do
+      {:ok, portfolio} ->
+        run_scan_mode(portfolio, portfolio_path, directories, exclude, config, opts)
+
+      {:error, :not_initialized} ->
+        handle_not_initialized(portfolio_path)
+    end
+  end
+
+  defp run_scan_mode(portfolio, portfolio_path, directories, exclude, config, opts) do
+    if Keyword.get(opts, :dry_run, false) do
+      dry_run_scan(directories, exclude)
+    else
+      do_scan(portfolio, portfolio_path, directories, exclude, config, opts)
+    end
+  end
+
+  defp handle_not_initialized(portfolio_path) do
+    Mix.shell().error("""
+    Portfolio not found at #{portfolio_path}
+    Run `mix portfolio.init` first.
+    """)
+
+    Exit.halt(:config)
   end
 
   defp dry_run_scan(directories, exclude) do
@@ -95,7 +104,7 @@ defmodule Mix.Tasks.Portfolio.Scan do
 
         case File.dir?(expanded) do
           true ->
-            PortfolioManager.Adapters.LocalGit.discover_repos(expanded, exclude: exclude)
+            LocalGit.discover_repos(expanded, exclude: exclude)
 
           _ ->
             Mix.shell().info("  Skipping #{dir} (not a directory)")
@@ -111,7 +120,7 @@ defmodule Mix.Tasks.Portfolio.Scan do
         Mix.shell().info("Found #{length(repos)} repositories:")
 
         Enum.each(repos, fn path ->
-          {:ok, lang} = PortfolioManager.Adapters.FileDetector.detect_language(path)
+          {:ok, lang} = FileDetector.detect_language(path)
           id = Path.basename(path)
           Mix.shell().info("  #{id} (#{lang}) - #{path}")
         end)
@@ -125,79 +134,101 @@ defmodule Mix.Tasks.Portfolio.Scan do
     Mix.shell().info("Scanning directories...")
 
     expanded_dirs = Enum.map(directories, &Path.expand/1)
+    scan_opts = build_scan_opts(opts, config)
 
-    no_detect? = Keyword.get(opts, :no_detect, false)
-    detect? = no_detect? != true
-
-    agentic_default = agents_auto_detect?(config)
-    no_agentic? = Keyword.get(opts, :no_agentic, false)
-    agentic_flag = Keyword.get(opts, :agentic, false)
-    json? = Keyword.get(opts, :json, false)
-    review? = Keyword.get(opts, :review, false)
-
-    agentic? =
-      cond do
-        no_agentic? -> false
-        agentic_flag -> true
-        true -> agentic_default
-      end
-
-    case PortfolioManager.scan(portfolio, expanded_dirs, detect: detect?, exclude: exclude) do
-      {:ok, added_repos} ->
-        {agentic_result, pending_count} =
-          case agentic? do
-            true -> run_agentic_detection(portfolio, added_repos, opts)
-            _ -> {:ok, 0}
-          end
-
-        case PortfolioManager.sync(portfolio) do
-          :ok ->
-            :ok
-
-          {:error, reason} ->
-            Mix.shell().error("Failed to save portfolio: #{inspect(reason)}")
-            Exit.halt(:error)
-        end
-
-        case json? do
-          true ->
-            output_json(added_repos, pending_count)
-
-          _ ->
-            case Enum.empty?(added_repos) do
-              true ->
-                Mix.shell().info("No new repositories found.")
-
-              _ ->
-                Mix.shell().info(
-                  "#{IO.ANSI.green()}Added #{length(added_repos)} repositories:#{IO.ANSI.reset()}"
-                )
-
-                Enum.each(added_repos, fn repo ->
-                  Mix.shell().info("  #{repo.id} (#{repo.language}) - #{repo.type}")
-                end)
-            end
-
-            case agentic_result == :ok and pending_count > 0 do
-              true ->
-                Mix.shell().info("")
-                Mix.shell().info("Queued #{pending_count} agentic detections for review.")
-
-              _ ->
-                :ok
-            end
-        end
-
-        case review? do
-          true -> Mix.Tasks.Portfolio.Review.run(["--portfolio-dir", portfolio_path])
-          _ -> :ok
-        end
-
-      {:error, reason} ->
-        Mix.shell().error("Scan failed: #{inspect(reason)}")
-        Exit.halt(:error)
+    with {:ok, added_repos} <- perform_scan(portfolio, expanded_dirs, scan_opts, exclude),
+         {agentic_result, pending_count} <- maybe_run_agentic(portfolio, added_repos, scan_opts),
+         :ok <- sync_portfolio(portfolio) do
+      output_results(added_repos, pending_count, agentic_result, scan_opts)
+      maybe_run_review(scan_opts, portfolio_path)
     end
   end
+
+  defp build_scan_opts(opts, config) do
+    %{
+      detect: !Keyword.get(opts, :no_detect, false),
+      agentic: resolve_agentic_flag(opts, config),
+      json: Keyword.get(opts, :json, false),
+      review: Keyword.get(opts, :review, false)
+    }
+  end
+
+  defp resolve_agentic_flag(opts, config) do
+    cond do
+      Keyword.get(opts, :no_agentic, false) -> false
+      Keyword.get(opts, :agentic, false) -> true
+      true -> agents_auto_detect?(config)
+    end
+  end
+
+  defp perform_scan(portfolio, expanded_dirs, scan_opts, exclude) do
+    case PortfolioManager.scan(portfolio, expanded_dirs,
+           detect: scan_opts.detect,
+           exclude: exclude
+         ) do
+      {:ok, _} = result -> result
+      {:error, reason} -> handle_scan_error(reason)
+    end
+  end
+
+  defp handle_scan_error(reason) do
+    Mix.shell().error("Scan failed: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp maybe_run_agentic(portfolio, added_repos, %{agentic: true}) do
+    run_agentic_detection(portfolio, added_repos, [])
+  end
+
+  defp maybe_run_agentic(_portfolio, _added_repos, _scan_opts), do: {:ok, 0}
+
+  defp sync_portfolio(portfolio) do
+    case PortfolioManager.sync(portfolio) do
+      :ok -> :ok
+      {:error, reason} -> handle_sync_error(reason)
+    end
+  end
+
+  defp handle_sync_error(reason) do
+    Mix.shell().error("Failed to save portfolio: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp output_results(added_repos, pending_count, _agentic_result, %{json: true}) do
+    output_json(added_repos, pending_count)
+  end
+
+  defp output_results(added_repos, pending_count, agentic_result, _scan_opts) do
+    print_added_repos(added_repos)
+    print_pending_notice(agentic_result, pending_count)
+  end
+
+  defp print_added_repos([]) do
+    Mix.shell().info("No new repositories found.")
+  end
+
+  defp print_added_repos(added_repos) do
+    Mix.shell().info(
+      "#{IO.ANSI.green()}Added #{length(added_repos)} repositories:#{IO.ANSI.reset()}"
+    )
+
+    Enum.each(added_repos, fn repo ->
+      Mix.shell().info("  #{repo.id} (#{repo.language}) - #{repo.type}")
+    end)
+  end
+
+  defp print_pending_notice(:ok, pending_count) when pending_count > 0 do
+    Mix.shell().info("")
+    Mix.shell().info("Queued #{pending_count} agentic detections for review.")
+  end
+
+  defp print_pending_notice(_agentic_result, _pending_count), do: :ok
+
+  defp maybe_run_review(%{review: true}, portfolio_path) do
+    Review.run(["--portfolio-dir", portfolio_path])
+  end
+
+  defp maybe_run_review(_scan_opts, _portfolio_path), do: :ok
 
   defp show_help do
     Mix.shell().info("""
@@ -228,7 +259,7 @@ defmodule Mix.Tasks.Portfolio.Scan do
   defp run_agentic_detection(portfolio, repos, _opts) do
     results =
       Enum.map(repos, fn repo ->
-        PortfolioManager.Detection.Agentic.analyze_with_review(repo.path, portfolio,
+        Agentic.analyze_with_review(repo.path, portfolio,
           repo_id: repo.id,
           auto_accept_threshold: 0.9
         )

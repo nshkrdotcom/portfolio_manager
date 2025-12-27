@@ -9,18 +9,23 @@ defmodule PortfolioManager.Workflow.Steps.GitStep do
   def execute(step, context, _opts) do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
-
-    repo_path =
-      Map.get(inputs, "path") || Map.get(inputs, :path) || (context.repo && context.repo.path)
-
-    case action do
-      "fetch" -> git_fetch(repo_path, inputs, context)
-      "diff" -> git_diff(repo_path, inputs, context)
-      "log" -> git_log(repo_path, inputs, context)
-      "clone" -> git_clone(inputs, context)
-      _ -> {:error, "Unknown git action: #{action}"}
-    end
+    repo_path = get_input(inputs, "path") || (context.repo && context.repo.path)
+    dispatch_action(action, repo_path, inputs, context)
   end
+
+  defp dispatch_action("fetch", repo_path, inputs, context),
+    do: git_fetch(repo_path, inputs, context)
+
+  defp dispatch_action("diff", repo_path, inputs, context),
+    do: git_diff(repo_path, inputs, context)
+
+  defp dispatch_action("log", repo_path, inputs, context), do: git_log(repo_path, inputs, context)
+  defp dispatch_action("clone", _repo_path, inputs, context), do: git_clone(inputs, context)
+
+  defp dispatch_action(action, _repo_path, _inputs, _context),
+    do: {:error, "Unknown git action: #{action}"}
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
 
   defp git_fetch(nil, _inputs, _context), do: {:error, "repo path required"}
 
@@ -75,18 +80,20 @@ defmodule PortfolioManager.Workflow.Steps.GitStep do
         commits =
           output
           |> String.split("\n", trim: true)
-          |> Enum.map(fn line ->
-            case String.split(line, "|", parts: 2) do
-              [sha, msg] -> %{sha: sha, message: msg}
-              _ -> nil
-            end
-          end)
+          |> Enum.map(&parse_commit_line/1)
           |> Enum.reject(&is_nil/1)
 
         {:ok, context, %{commits: commits}}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp parse_commit_line(line) do
+    case String.split(line, "|", parts: 2) do
+      [sha, msg] -> %{sha: sha, message: msg}
+      _ -> nil
     end
   end
 

@@ -4,6 +4,7 @@ defmodule Mix.Tasks.Portfolio.ReviewTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Review
   alias PortfolioManager.Detection.ReviewStore
 
   test "accept-all applies updates and persists" do
@@ -34,7 +35,7 @@ defmodule Mix.Tasks.Portfolio.ReviewTest do
     Mix.Task.reenable("portfolio.review")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Review.run([
+      Review.run([
         "--accept-all",
         "--threshold",
         "0.9",

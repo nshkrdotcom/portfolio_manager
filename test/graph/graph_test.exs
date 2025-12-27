@@ -52,7 +52,7 @@ defmodule PortfolioManager.GraphTest do
     graph = Graph.build(portfolio)
 
     cycles = Graph.find_cycles(graph)
-    assert length(cycles) >= 1
+    assert cycles != []
     assert Enum.any?(cycles, fn cycle -> Enum.sort(cycle) == ["repo-a", "repo-b"] end)
   end
 

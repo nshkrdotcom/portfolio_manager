@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.EditTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Edit
+
   setup do
     portfolio_path = create_test_portfolio()
     repo_path = Path.join(System.tmp_dir!(), "edit_repo_#{:rand.uniform(1_000_000)}")
@@ -26,7 +28,7 @@ defmodule Mix.Tasks.Portfolio.EditTest do
     Mix.Task.reenable("portfolio.edit")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Edit.run([
+      Edit.run([
         repo_id,
         "--set",
         "status=stale",

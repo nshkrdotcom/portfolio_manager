@@ -13,6 +13,8 @@
 
 **AI-native personal project intelligence system - manage, track, and search across all your repositories with semantic understanding and agentic capabilities.**
 
+**Status: Pre-alpha.** APIs, storage formats, and workflows are unstable; expect breaking changes. This README targets developer setup and local workflows.
+
 ---
 
 ## What Is This?
@@ -24,6 +26,7 @@ Portfolio Manager is a pure Elixir library for tracking and managing context abo
 - **Relationships**: How repos connect (dependencies, ports, forks)
 - **Detection**: Auto-detect repo type, language, and purpose
 - **Semantic Search**: Vector embeddings via `gemini_ex` for intelligent querying
+- **Doc Ingestion (pre-alpha)**: Index `docs/**/*.md` into pgvector for chunk-level search
 - **Agentic Queries**: Multi-step reasoning with tool use (search, analyze, compare)
 - **Multi-LLM**: Works with Gemini, Codex, and Claude (any combination)
 - **Workflows**: Automated tasks (port sync, doc generation, health checks)
@@ -44,7 +47,7 @@ Portfolio Manager integrates with an enhanced RAG system providing:
 ┌───────────────────────────┴───────────────────────────────┐
 │                      RAG Layer                            │
 │    Embeddings: gemini_ex    LLMs: gemini/codex/claude     │
-│     Search: Torus + pgvector  Agent: Tools + Memory       │
+│        Search: pgvector  Agent: Tools + Memory            │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -55,7 +58,7 @@ Add `portfolio_manager` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:portfolio_manager, "~> 0.1.0"}
+    {:portfolio_manager, "~> 0.1.1"}
   ]
 end
 ```
@@ -97,7 +100,13 @@ mix portfolio.edit my-project --add-tag=elixir --add-tag=ai
 # Search across repos
 mix portfolio.search authentication
 
-# AI-powered queries (requires GOOGLE_API_KEY)
+# Ingest repo docs into pgvector (Elixir repos only, docs/**/*.md)
+mix portfolio.docs ingest --repo my-project --embed
+
+# Search doc chunks (pgvector)
+mix portfolio.docs search "roadmap"
+
+# AI-powered queries (requires GEMINI_API_KEY)
 mix portfolio.ask "which repos use phoenix?"
 
 # Show portfolio status
@@ -127,6 +136,34 @@ mix portfolio.completion --shell=bash >> ~/.bashrc
 
 # Interactive REPL mode
 mix portfolio.repl
+```
+
+### Doc Ingestion (pgvector)
+
+Doc ingestion is pre-alpha and currently indexes only `docs/**/*.md` for Elixir repos.
+Embeddings are generated via Gemini and stored in Postgres + pgvector.
+Omit `--embed` to only write the doc index without vector storage.
+
+Prereqs:
+- Postgres with the `vector` extension available
+- `PORTFOLIO_DB_URL` set
+- `GEMINI_API_KEY` set
+
+```bash
+# Create the database (optional, if it doesn't exist)
+mix ecto.create -r PortfolioManager.VectorStore.Repo
+
+# Run schema migration (optional, table is also created on demand)
+mix ecto.migrate -r PortfolioManager.VectorStore.Repo
+
+# One repo at a time
+mix portfolio.docs ingest --repo my-project --embed
+
+# Search across ingested doc chunks
+mix portfolio.docs search "roadmap"
+
+# Preview without writing
+mix portfolio.docs ingest --repo my-project --dry-run
 ```
 
 ### Using the Elixir API
@@ -192,10 +229,13 @@ config :portfolio_manager,
 # Portfolio location override
 export PORTFOLIO_DIR=~/p/g/n/portfolio
 
-# Required for embeddings
-export GOOGLE_API_KEY="your-gemini-api-key"
+# Required for embeddings (Gemini)
+export GEMINI_API_KEY="your-gemini-api-key"
 
-# Or for OpenAI
+# Postgres + pgvector connection for doc search
+export PORTFOLIO_DB_URL="postgres://user@/portfolio_manager?host=/var/run/postgresql"
+
+# Optional provider key (if using Codex)
 export OPENAI_API_KEY="your-openai-key"
 ```
 
@@ -215,9 +255,23 @@ scan:
     - "**/node_modules/**"
     - "**/.git/**"
 
-agents:
-  enabled: true
-  auto_detect: true
+docs:
+  include_patterns:
+    - "docs/**/*.md"
+  exclude_patterns:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/deps/**"
+    - "**/_build/**"
+  only_languages:
+    - elixir
+  chunk_max_chars: 800
+  chunk_overlap: 100
+  embed_batch_size: 50
+  delete_existing: true
+
+sync:
+  auto_commit: false
 ```
 
 ## API Reference
@@ -353,6 +407,8 @@ PortfolioManager.list_repos(portfolio,
 ```
 
 ### Semantic Search
+
+Semantic search uses repo metadata plus notes, decisions, and doc summaries (if ingested).
 
 ```elixir
 # Search for repos related to a concept
@@ -525,7 +581,7 @@ assert_genserver_state(server, fn state -> state.count == 1 end)
 - [claude_agent_sdk](https://github.com/nshkrdotcom/claude_agent_sdk) - Claude Agent SDK for Elixir
 
 **Search**:
-- [Torus](https://github.com/dimamik/torus) - PostgreSQL search integration for Ecto
+- [pgvector](https://github.com/pgvector/pgvector-elixir) - pgvector adapter for Postgres
 
 ## License
 

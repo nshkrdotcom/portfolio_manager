@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.ShowTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Show
+
   setup do
     portfolio_path = create_test_portfolio()
 
@@ -21,7 +23,7 @@ defmodule Mix.Tasks.Portfolio.ShowTest do
 
     output =
       capture_io(fn ->
-        Mix.Tasks.Portfolio.Show.run(["alpha", "--portfolio-dir", portfolio_path])
+        Show.run(["alpha", "--portfolio-dir", portfolio_path])
       end)
 
     assert output =~ "Commits (30d):"
@@ -37,7 +39,7 @@ defmodule Mix.Tasks.Portfolio.ShowTest do
 
     output =
       capture_io(fn ->
-        Mix.Tasks.Portfolio.Show.run(["alpha", "--json", "--portfolio-dir", portfolio_path])
+        Show.run(["alpha", "--json", "--portfolio-dir", portfolio_path])
       end)
 
     data = Jason.decode!(output)

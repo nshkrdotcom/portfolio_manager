@@ -7,6 +7,8 @@ defmodule PortfolioManager.Rag do
   """
 
   alias PortfolioManager.Rag.Tools
+  alias Rag.Agent.Session, as: RagSession
+  alias Rag.Ai.Gemini, as: RagGemini
 
   @tools [
     Tools.SearchRepos,
@@ -108,7 +110,7 @@ defmodule PortfolioManager.Rag do
   """
   @spec create_session(keyword()) :: Rag.Agent.Session.t()
   def create_session(opts \\ []) do
-    Rag.Agent.Session.new(opts)
+    RagSession.new(opts)
   end
 
   @doc """
@@ -232,18 +234,17 @@ defmodule PortfolioManager.Rag do
     get_in(Application.get_env(:rag, :agent, %{}), [:max_iterations]) || 10
   end
 
-  defp instantiate_provider(:gemini), do: Rag.Ai.Gemini.new(%{})
+  defp instantiate_provider(:gemini), do: RagGemini.new(%{})
   defp instantiate_provider(:claude), do: maybe_instantiate(Rag.Ai.Claude)
   defp instantiate_provider(:codex), do: maybe_instantiate(Rag.Ai.Codex)
   defp instantiate_provider(provider) when is_struct(provider), do: provider
-  defp instantiate_provider(_), do: Rag.Ai.Gemini.new(%{})
+  defp instantiate_provider(_), do: RagGemini.new(%{})
 
-  # Use apply/3 to avoid compile-time warnings for optional modules
   defp maybe_instantiate(module) do
     if Code.ensure_loaded?(module) do
-      apply(module, :new, [%{}])
+      module.new(%{})
     else
-      Rag.Ai.Gemini.new(%{})
+      RagGemini.new(%{})
     end
   end
 end

@@ -1,7 +1,7 @@
 defmodule PortfolioManager.Domain.RegistryTest do
   use ExUnit.Case, async: true
 
-  alias PortfolioManager.Domain.{Registry, Repo, Relationship}
+  alias PortfolioManager.Domain.{Registry, Relationship, Repo}
 
   describe "new/0" do
     test "creates empty registry" do

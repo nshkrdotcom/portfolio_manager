@@ -1,5 +1,4 @@
 defmodule Mix.Tasks.Portfolio.Sync do
-  # Suppress dialyzer warnings about Mix functions and defensive error handling
   @dialyzer {:nowarn_function,
              [
                output_json: 1,
@@ -7,7 +6,9 @@ defmodule Mix.Tasks.Portfolio.Sync do
                output_repo_json: 1,
                output_repo_success: 1,
                show_help: 0,
-               refresh_repo_info: 3
+               refresh_repo_info: 3,
+               handle_sync_portfolio: 2,
+               handle_sync_repo: 3
              ]}
 
   @moduledoc """
@@ -45,8 +46,9 @@ defmodule Mix.Tasks.Portfolio.Sync do
 
   use Mix.Task
 
-  alias PortfolioManager.Adapters.{LocalGit, FileDetector}
+  alias PortfolioManager.Adapters.{FileDetector, LocalGit}
   alias PortfolioManager.CLI.Exit
+  alias PortfolioManager.Detection.Agentic
 
   @impl Mix.Task
   def run(args) do
@@ -85,67 +87,73 @@ defmodule Mix.Tasks.Portfolio.Sync do
 
   defp sync_portfolio(opts) do
     portfolio_path = opts[:portfolio_dir] || default_portfolio_path()
-    refresh_opts = build_refresh_opts(opts)
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        repos = PortfolioManager.list_repos(portfolio)
-
-        {refreshed, errors} =
-          Enum.reduce(repos, {0, []}, fn repo, {count, acc} ->
-            case refresh_repo_info(portfolio, repo, refresh_opts) do
-              :ok -> {count + 1, acc}
-              {:error, reason} -> {count, [{repo.id, reason} | acc]}
-            end
-          end)
-
-        results = %{
-          saved: false,
-          refreshed: refreshed,
-          errors: Enum.reverse(errors),
-          views: false
-        }
-
-        # Save current state
-        results =
-          case PortfolioManager.sync(portfolio) do
-            :ok ->
-              %{results | saved: true}
-
-            {:error, reason} ->
-              %{results | errors: results.errors ++ [{"portfolio", reason}]}
-          end
-
-        # Optionally regenerate views
-        results =
-          if opts[:views] do
-            case PortfolioManager.generate_views(portfolio) do
-              :ok ->
-                %{results | views: true}
-
-              {:error, reason} ->
-                %{results | errors: results.errors ++ [{"views", reason}]}
-            end
-          else
-            results
-          end
-
-        if opts[:json] do
-          output_json(results)
-        else
-          output_success(results, opts)
-        end
-
-        maybe_exit_on_errors(results.errors)
+        handle_sync_portfolio(portfolio, opts)
 
       {:error, :not_initialized} ->
-        Mix.shell().error("""
-        Portfolio not found at #{portfolio_path}
-        Run `mix portfolio.init` first.
-        """)
-
-        Exit.halt(:config)
+        output_not_initialized_error(portfolio_path)
     end
+  end
+
+  defp handle_sync_portfolio(portfolio, opts) do
+    refresh_opts = build_refresh_opts(opts)
+    repos = PortfolioManager.list_repos(portfolio)
+
+    {refreshed, errors} = refresh_all_repos(portfolio, repos, refresh_opts)
+
+    results =
+      %{saved: false, refreshed: refreshed, errors: Enum.reverse(errors), views: false}
+      |> save_portfolio_state(portfolio)
+      |> maybe_regenerate_views(portfolio, opts)
+
+    output_portfolio_results(results, opts)
+    maybe_exit_on_errors(results.errors)
+  end
+
+  defp refresh_all_repos(portfolio, repos, refresh_opts) do
+    Enum.reduce(repos, {0, []}, fn repo, {count, acc} ->
+      case refresh_repo_info(portfolio, repo, refresh_opts) do
+        :ok -> {count + 1, acc}
+        {:error, reason} -> {count, [{repo.id, reason} | acc]}
+      end
+    end)
+  end
+
+  defp save_portfolio_state(results, portfolio) do
+    case PortfolioManager.sync(portfolio) do
+      :ok -> %{results | saved: true}
+      {:error, reason} -> %{results | errors: results.errors ++ [{"portfolio", reason}]}
+    end
+  end
+
+  defp maybe_regenerate_views(results, portfolio, opts) do
+    if opts[:views] do
+      do_regenerate_views(results, portfolio)
+    else
+      results
+    end
+  end
+
+  defp do_regenerate_views(results, portfolio) do
+    case PortfolioManager.generate_views(portfolio) do
+      :ok -> %{results | views: true}
+      {:error, reason} -> %{results | errors: results.errors ++ [{"views", reason}]}
+    end
+  end
+
+  defp output_portfolio_results(results, opts) do
+    if opts[:json], do: output_json(results), else: output_success(results, opts)
+  end
+
+  defp output_not_initialized_error(portfolio_path) do
+    Mix.shell().error("""
+    Portfolio not found at #{portfolio_path}
+    Run `mix portfolio.init` first.
+    """)
+
+    Exit.halt(:config)
   end
 
   defp sync_repo(repo_id, opts) do
@@ -153,196 +161,222 @@ defmodule Mix.Tasks.Portfolio.Sync do
 
     case PortfolioManager.init(portfolio_path) do
       {:ok, portfolio} ->
-        case PortfolioManager.get_repo(portfolio, repo_id) do
-          {:ok, repo} ->
-            refresh_opts = build_refresh_opts(opts)
-
-            case refresh_repo_info(portfolio, repo, refresh_opts) do
-              :ok ->
-                PortfolioManager.sync(portfolio)
-                {:ok, context} = PortfolioManager.get_context(portfolio, repo_id)
-
-                if opts[:json] do
-                  output_repo_json(context)
-                else
-                  output_repo_success(context)
-                end
-
-              {:error, reason} ->
-                Mix.shell().error("Failed to refresh #{repo_id}: #{inspect(reason)}")
-                Exit.halt(exit_code_for_error(reason))
-            end
-
-          {:error, :not_found} ->
-            Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
-            Exit.halt(:not_found)
-        end
+        handle_sync_repo(portfolio, repo_id, opts)
 
       {:error, :not_initialized} ->
-        Mix.shell().error("""
-        Portfolio not found at #{portfolio_path}
-        Run `mix portfolio.init` first.
-        """)
-
-        Exit.halt(:config)
+        output_not_initialized_error(portfolio_path)
     end
   end
+
+  defp handle_sync_repo(portfolio, repo_id, opts) do
+    case PortfolioManager.get_repo(portfolio, repo_id) do
+      {:ok, repo} ->
+        do_sync_repo(portfolio, repo, repo_id, opts)
+
+      {:error, :not_found} ->
+        Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
+        Exit.halt(:not_found)
+    end
+  end
+
+  defp do_sync_repo(portfolio, repo, repo_id, opts) do
+    refresh_opts = build_refresh_opts(opts)
+
+    case refresh_repo_info(portfolio, repo, refresh_opts) do
+      :ok ->
+        PortfolioManager.sync(portfolio)
+        {:ok, context} = PortfolioManager.get_context(portfolio, repo_id)
+        output_repo_result(context, opts)
+
+      {:error, reason} ->
+        Mix.shell().error("Failed to refresh #{repo_id}: #{inspect(reason)}")
+        Exit.halt(exit_code_for_error(reason))
+    end
+  end
+
+  defp output_repo_result(context, opts) do
+    if opts[:json], do: output_repo_json(context), else: output_repo_success(context)
+  end
+
+  defp refresh_repo_info(_portfolio, %{path: nil}, _opts), do: {:error, :path_not_found}
+
+  defp refresh_repo_info(_portfolio, %{path: path}, _opts) when not is_binary(path),
+    do: {:error, :path_not_found}
 
   defp refresh_repo_info(portfolio, repo, opts) do
     path = repo.path
 
-    if path && File.dir?(path) do
-      computed_only = Keyword.get(opts, :computed_only, false)
-      full_scan = Keyword.get(opts, :full, false)
-      check_remotes = Keyword.get(opts, :check_remotes, false)
-
-      updates = %{}
-
-      detection =
-        if computed_only do
-          nil
-        else
-          case FileDetector.detect(path) do
-            {:ok, detection} -> detection
-            _ -> nil
-          end
-        end
-
-      updates =
-        if computed_only do
-          updates
-        else
-          updates =
-            case LocalGit.get_info(path) do
-              {:ok, info} ->
-                Map.merge(updates, %{
-                  remote_url: info.remote_url
-                })
-
-              _ ->
-                updates
-            end
-
-          updates =
-            if detection do
-              updates
-              |> Map.put(:language, detection.language)
-              |> Map.put(:type, detection.type)
-              |> Map.put(:framework, detection.framework)
-            else
-              updates
-            end
-
-          case LocalGit.days_since_last_commit(path) do
-            {:ok, days} when days >= 90 ->
-              Map.put(updates, :status, :stale)
-
-            {:ok, _} ->
-              if repo.status == :stale, do: Map.put(updates, :status, :active), else: updates
-
-            _ ->
-              updates
-          end
-        end
-
-      # Update computed data
-      computed = %{}
-
-      computed =
-        case LocalGit.commit_count_30d(path) do
-          {:ok, count} -> Map.put(computed, "commit_count_30d", count)
-          _ -> computed
-        end
-
-      computed =
-        case LocalGit.contributors(path) do
-          {:ok, contributors} ->
-            computed
-            |> Map.put("contributors", contributors)
-            |> Map.put("contributor_count", length(contributors))
-
-          _ ->
-            computed
-        end
-
-      computed =
-        case LocalGit.first_commit_date(path) do
-          {:ok, %DateTime{} = date} ->
-            Map.put(computed, "first_commit_date", DateTime.to_iso8601(date))
-
-          _ ->
-            computed
-        end
-
-      computed =
-        case LocalGit.last_commit_info(path) do
-          {:ok, %{sha: sha, date: date, message: message}} ->
-            Map.put(computed, "last_commit", %{
-              "sha" => sha,
-              "date" => date && DateTime.to_iso8601(date),
-              "message" => message
-            })
-
-          _ ->
-            computed
-        end
-
-      computed =
-        case dependency_buckets(path, detection) do
-          nil ->
-            computed
-
-          deps ->
-            Map.put(computed, "dependencies", %{
-              "runtime" => Map.get(deps, :runtime, []),
-              "dev" => Map.get(deps, :dev, []),
-              "optional" => Map.get(deps, :optional, [])
-            })
-        end
-
-      computed =
-        if check_remotes do
-          computed
-          |> maybe_fetch_remotes(path)
-          |> maybe_add_remote_commit(path)
-        else
-          computed
-        end
-
-      updates =
-        if map_size(computed) > 0, do: Map.put(updates, :computed, computed), else: updates
-
-      agentic_result =
-        if full_scan do
-          PortfolioManager.Detection.Agentic.analyze_with_review(path, portfolio,
-            repo_id: repo.id,
-            auto_accept_threshold: 0.9
-          )
-        else
-          {:ok, %{pending: 0}}
-        end
-
-      if map_size(updates) > 0 do
-        case PortfolioManager.update_context(portfolio, repo.id, updates) do
-          {:ok, _} ->
-            case agentic_result do
-              {:ok, _} -> :ok
-              {:error, reason} -> {:error, {:agentic_failed, reason}}
-            end
-
-          error ->
-            error
-        end
-      else
-        case agentic_result do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, {:agentic_failed, reason}}
-        end
-      end
+    if File.dir?(path) do
+      do_refresh_repo_info(portfolio, repo, path, opts)
     else
       {:error, :path_not_found}
     end
   end
+
+  defp do_refresh_repo_info(portfolio, repo, path, opts) do
+    computed_only = Keyword.get(opts, :computed_only, false)
+    full_scan = Keyword.get(opts, :full, false)
+    check_remotes = Keyword.get(opts, :check_remotes, false)
+
+    detection = get_detection(path, computed_only)
+    updates = build_metadata_updates(path, repo, detection, computed_only)
+    computed = build_computed_data(path, detection, check_remotes)
+    updates = maybe_add_computed(updates, computed)
+    agentic_result = run_agentic_analysis(path, portfolio, repo, full_scan)
+
+    apply_updates_and_agentic(portfolio, repo.id, updates, agentic_result)
+  end
+
+  defp get_detection(_path, true), do: nil
+
+  defp get_detection(path, false) do
+    {:ok, detection} = FileDetector.detect(path)
+    detection
+  end
+
+  defp build_metadata_updates(_path, _repo, _detection, true), do: %{}
+
+  defp build_metadata_updates(path, repo, detection, false) do
+    %{}
+    |> add_git_info(path)
+    |> add_detection_info(detection)
+    |> add_staleness_status(path, repo)
+  end
+
+  defp add_git_info(updates, path) do
+    case LocalGit.get_info(path) do
+      {:ok, info} -> Map.put(updates, :remote_url, info.remote_url)
+      _ -> updates
+    end
+  end
+
+  defp add_detection_info(updates, nil), do: updates
+
+  defp add_detection_info(updates, detection) do
+    updates
+    |> Map.put(:language, detection.language)
+    |> Map.put(:type, detection.type)
+    |> Map.put(:framework, detection.framework)
+  end
+
+  defp add_staleness_status(updates, path, repo) do
+    {:ok, days} = LocalGit.days_since_last_commit(path)
+
+    if days >= 90 do
+      Map.put(updates, :status, :stale)
+    else
+      maybe_reactivate_stale_repo(updates, repo)
+    end
+  end
+
+  defp maybe_reactivate_stale_repo(updates, %{status: :stale}),
+    do: Map.put(updates, :status, :active)
+
+  defp maybe_reactivate_stale_repo(updates, _repo), do: updates
+
+  defp build_computed_data(path, detection, check_remotes) do
+    %{}
+    |> add_commit_count(path)
+    |> add_contributors(path)
+    |> add_first_commit_date(path)
+    |> add_last_commit(path)
+    |> add_dependencies(path, detection)
+    |> maybe_add_remote_data(path, check_remotes)
+  end
+
+  defp add_commit_count(computed, path) do
+    case LocalGit.commit_count_30d(path) do
+      {:ok, count} -> Map.put(computed, "commit_count_30d", count)
+      _ -> computed
+    end
+  end
+
+  defp add_contributors(computed, path) do
+    case LocalGit.contributors(path) do
+      {:ok, contributors} ->
+        computed
+        |> Map.put("contributors", contributors)
+        |> Map.put("contributor_count", length(contributors))
+
+      _ ->
+        computed
+    end
+  end
+
+  defp add_first_commit_date(computed, path) do
+    case LocalGit.first_commit_date(path) do
+      {:ok, %DateTime{} = date} ->
+        Map.put(computed, "first_commit_date", DateTime.to_iso8601(date))
+
+      _ ->
+        computed
+    end
+  end
+
+  defp add_last_commit(computed, path) do
+    case LocalGit.last_commit_info(path) do
+      {:ok, %{sha: sha, date: date, message: message}} ->
+        Map.put(computed, "last_commit", %{
+          "sha" => sha,
+          "date" => date && DateTime.to_iso8601(date),
+          "message" => message
+        })
+
+      _ ->
+        computed
+    end
+  end
+
+  defp add_dependencies(computed, path, detection) do
+    case dependency_buckets(path, detection) do
+      nil ->
+        computed
+
+      deps ->
+        Map.put(computed, "dependencies", %{
+          "runtime" => Map.get(deps, :runtime, []),
+          "dev" => Map.get(deps, :dev, []),
+          "optional" => Map.get(deps, :optional, [])
+        })
+    end
+  end
+
+  defp maybe_add_remote_data(computed, _path, false), do: computed
+
+  defp maybe_add_remote_data(computed, path, true) do
+    computed
+    |> maybe_fetch_remotes(path)
+    |> maybe_add_remote_commit(path)
+  end
+
+  defp maybe_add_computed(updates, computed) when map_size(computed) > 0 do
+    Map.put(updates, :computed, computed)
+  end
+
+  defp maybe_add_computed(updates, _computed), do: updates
+
+  defp run_agentic_analysis(_path, _portfolio, _repo, false), do: {:ok, %{pending: 0}}
+
+  defp run_agentic_analysis(path, portfolio, repo, true) do
+    Agentic.analyze_with_review(path, portfolio,
+      repo_id: repo.id,
+      auto_accept_threshold: 0.9
+    )
+  end
+
+  defp apply_updates_and_agentic(portfolio, repo_id, updates, agentic_result)
+       when map_size(updates) > 0 do
+    case PortfolioManager.update_context(portfolio, repo_id, updates) do
+      {:ok, _} -> finalize_agentic_result(agentic_result)
+      error -> error
+    end
+  end
+
+  defp apply_updates_and_agentic(_portfolio, _repo_id, _updates, agentic_result) do
+    finalize_agentic_result(agentic_result)
+  end
+
+  defp finalize_agentic_result({:ok, _}), do: :ok
 
   defp output_json(results) do
     Mix.shell().info(Jason.encode!(results, pretty: true))

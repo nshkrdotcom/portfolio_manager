@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.AddTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Add
+
   test "persists added repo with overrides" do
     portfolio_path = create_test_portfolio()
     repo_path = Path.join(System.tmp_dir!(), "add_repo_#{:rand.uniform(1_000_000)}")
@@ -18,7 +20,7 @@ defmodule Mix.Tasks.Portfolio.AddTest do
     Mix.Task.reenable("portfolio.add")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Add.run([
+      Add.run([
         repo_path,
         "--id",
         "custom-repo",

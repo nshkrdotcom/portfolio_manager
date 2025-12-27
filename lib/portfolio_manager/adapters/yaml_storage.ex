@@ -44,9 +44,8 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
     with :ok <- File.mkdir_p(expanded),
          :ok <- File.mkdir_p(Path.join(expanded, "repos")),
          :ok <- write_yaml(Path.join(expanded, "config.yml"), default_config()),
-         :ok <- write_yaml(Path.join(expanded, "registry.yml"), %{"repos" => []}),
-         :ok <- write_yaml(Path.join(expanded, "relationships.yml"), %{"relationships" => []}) do
-      :ok
+         :ok <- write_yaml(Path.join(expanded, "registry.yml"), %{"repos" => []}) do
+      write_yaml(Path.join(expanded, "relationships.yml"), %{"relationships" => []})
     end
   end
 
@@ -70,9 +69,8 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
     registry_path = Path.join(path, "registry.yml")
     rels_path = Path.join(path, "relationships.yml")
 
-    with :ok <- write_yaml(registry_path, %{"repos" => repos_data}),
-         :ok <- write_yaml(rels_path, %{"relationships" => rels_data}) do
-      :ok
+    with :ok <- write_yaml(registry_path, %{"repos" => repos_data}) do
+      write_yaml(rels_path, %{"relationships" => rels_data})
     end
   end
 
@@ -130,17 +128,7 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
           end
 
         # Parse date from "**Date**: YYYY-MM-DD"
-        date =
-          case Regex.run(~r/\*\*Date\*\*:\s*(\d{4}-\d{2}-\d{2})/, content) do
-            [_, date_str] ->
-              case Date.from_iso8601(date_str) do
-                {:ok, d} -> d
-                _ -> nil
-              end
-
-            _ ->
-              nil
-          end
+        date = parse_decision_date(content)
 
         # Extract decision content (everything after "## Decision")
         decision_content =
@@ -157,6 +145,19 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
         }
 
       {:error, _} ->
+        nil
+    end
+  end
+
+  defp parse_decision_date(content) do
+    case Regex.run(~r/\*\*Date\*\*:\s*(\d{4}-\d{2}-\d{2})/, content) do
+      [_, date_str] ->
+        case Date.from_iso8601(date_str) do
+          {:ok, d} -> d
+          _ -> nil
+        end
+
+      _ ->
         nil
     end
   end
@@ -287,26 +288,9 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
       "[]\n"
     else
       list
-      |> Enum.map(fn item ->
-        item_str = encode_value(item, indent + 2) |> String.trim_trailing("\n")
-
-        if is_map(item) do
-          # For maps in lists, put first key on same line as dash
-          [first | rest] = String.split(item_str, "\n")
-          spaces = String.duplicate(" ", indent)
-          first_line = "#{spaces}- #{first}"
-
-          rest_lines =
-            Enum.map(rest, fn line ->
-              "#{spaces}  #{line}"
-            end)
-
-          Enum.join([first_line | rest_lines], "\n")
-        else
-          "#{String.duplicate(" ", indent)}- #{item_str}"
-        end
+      |> Enum.map_join("\n", fn item ->
+        encode_list_item(item, indent)
       end)
-      |> Enum.join("\n")
       |> Kernel.<>("\n")
     end
   end
@@ -317,22 +301,43 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
     else
       map
       |> Enum.sort_by(fn {k, _} -> k end)
-      |> Enum.map(fn {k, v} ->
-        key = to_string(k)
-        spaces = String.duplicate(" ", indent)
-
-        cond do
-          is_map(v) and map_size(v) > 0 ->
-            "#{spaces}#{key}:\n#{encode_value(v, indent + 2)}"
-
-          is_list(v) and length(v) > 0 ->
-            "#{spaces}#{key}:\n#{encode_value(v, indent + 2)}"
-
-          true ->
-            "#{spaces}#{key}: #{encode_value(v, indent) |> String.trim_leading()}"
-        end
+      |> Enum.map_join(fn {k, v} ->
+        encode_map_entry(k, v, indent)
       end)
-      |> Enum.join("")
+    end
+  end
+
+  defp encode_list_item(item, indent) do
+    item_str = encode_value(item, indent + 2) |> String.trim_trailing("\n")
+    spaces = String.duplicate(" ", indent)
+
+    if is_map(item) do
+      encode_map_list_item(item_str, spaces)
+    else
+      "#{spaces}- #{item_str}"
+    end
+  end
+
+  defp encode_map_list_item(item_str, spaces) do
+    [first | rest] = String.split(item_str, "\n")
+    first_line = "#{spaces}- #{first}"
+    rest_lines = Enum.map(rest, fn line -> "#{spaces}  #{line}" end)
+    Enum.join([first_line | rest_lines], "\n")
+  end
+
+  defp encode_map_entry(k, v, indent) do
+    key = to_string(k)
+    spaces = String.duplicate(" ", indent)
+
+    cond do
+      is_map(v) and map_size(v) > 0 ->
+        "#{spaces}#{key}:\n#{encode_value(v, indent + 2)}"
+
+      is_list(v) and v != [] ->
+        "#{spaces}#{key}:\n#{encode_value(v, indent + 2)}"
+
+      true ->
+        "#{spaces}#{key}: #{encode_value(v, indent) |> String.trim_leading()}"
     end
   end
 
@@ -355,8 +360,7 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
 
     text
     |> String.split("\n")
-    |> Enum.map(fn line -> "#{indent}#{line}" end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn line -> "#{indent}#{line}" end)
   end
 
   defp default_config do
@@ -365,6 +369,19 @@ defmodule PortfolioManager.Adapters.YAMLStorage do
       "scan" => %{
         "directories" => [],
         "exclude_patterns" => ["**/node_modules/**", "**/.git/**", "**/deps/**", "**/_build/**"]
+      },
+      "docs" => %{
+        "include_patterns" => ["docs/**/*.md"],
+        "exclude_patterns" => ["**/node_modules/**", "**/.git/**", "**/deps/**", "**/_build/**"],
+        "max_size" => 200_000,
+        "max_excerpt" => 300,
+        "max_summary" => 2000,
+        "only_languages" => ["elixir"],
+        "chunk_max_chars" => 800,
+        "chunk_overlap" => 100,
+        "embed_batch_size" => 50,
+        "delete_existing" => true,
+        "vector_backend" => "pgvector"
       },
       "sync" => %{
         "auto_commit" => false

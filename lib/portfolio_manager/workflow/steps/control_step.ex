@@ -19,40 +19,56 @@ defmodule PortfolioManager.Workflow.Steps.ControlStep do
   end
 
   defp handle_condition(inputs, context, opts) do
-    condition = Map.get(inputs, "condition") || Map.get(inputs, :condition)
-    cases = Map.get(inputs, "cases") || Map.get(inputs, :cases)
-    abort_message = Map.get(inputs, "abort_message") || Map.get(inputs, :abort_message)
+    condition = get_input(inputs, "condition")
+    cases = get_input(inputs, "cases")
+    abort_message = get_input(inputs, "abort_message")
+    handle_condition_type(cases, condition, inputs, context, opts, abort_message)
+  end
 
-    if is_map(cases) do
-      value = Context.resolve_inputs(context, condition)
+  defp handle_condition_type(cases, condition, _inputs, context, _opts, _abort_message)
+       when is_map(cases) do
+    value = Context.resolve_inputs(context, condition)
+    selected = lookup_case(cases, value)
+    resolved = Context.resolve_inputs(context, selected)
+    {:ok, context, %{value: resolved}}
+  end
 
-      selected =
-        Map.get(cases, value) ||
-          Map.get(cases, to_string(value)) ||
-          Map.get(cases, to_string(value) |> String.to_atom())
+  defp handle_condition_type(_cases, condition, inputs, context, opts, abort_message) do
+    result = evaluate_bool_condition(condition, context)
+    execute_condition_branch(result, inputs, context, opts, abort_message)
+  end
 
-      resolved = Context.resolve_inputs(context, selected)
-      {:ok, context, %{value: resolved}}
-    else
-      result =
-        cond do
-          is_boolean(condition) -> condition
-          is_binary(condition) -> Context.evaluate_condition(context, condition)
-          true -> false
-        end
+  defp lookup_case(cases, value) do
+    Map.get(cases, value) ||
+      Map.get(cases, to_string(value)) ||
+      Map.get(cases, to_string(value) |> String.to_atom())
+  end
 
-      if result do
-        execute_branch(Map.get(inputs, "on_true") || Map.get(inputs, :on_true), context, opts)
-      else
-        on_false = Map.get(inputs, "on_false") || Map.get(inputs, :on_false)
+  defp evaluate_bool_condition(condition, _context) when is_boolean(condition), do: condition
 
-        if on_false in ["abort", :abort] do
-          {:error, abort_message || "Aborted"}
-        else
-          execute_branch(on_false, context, opts)
-        end
-      end
-    end
+  defp evaluate_bool_condition(condition, context) when is_binary(condition),
+    do: Context.evaluate_condition(context, condition)
+
+  defp evaluate_bool_condition(_condition, _context), do: false
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
+
+  defp execute_condition_branch(true, inputs, context, opts, _abort_message) do
+    execute_branch(Map.get(inputs, "on_true") || Map.get(inputs, :on_true), context, opts)
+  end
+
+  defp execute_condition_branch(false, inputs, context, opts, abort_message) do
+    on_false = Map.get(inputs, "on_false") || Map.get(inputs, :on_false)
+    execute_false_branch(on_false, context, opts, abort_message)
+  end
+
+  defp execute_false_branch(on_false, _context, _opts, abort_message)
+       when on_false in ["abort", :abort] do
+    {:error, abort_message || "Aborted"}
+  end
+
+  defp execute_false_branch(on_false, context, opts, _abort_message) do
+    execute_branch(on_false, context, opts)
   end
 
   defp handle_loop(inputs, context, opts) do
@@ -64,29 +80,33 @@ defmodule PortfolioManager.Workflow.Steps.ControlStep do
     if is_list(items) and is_map(step_def) do
       {ctx, results} =
         Enum.reduce(items, {context, []}, fn item, {ctx, acc} ->
-          ctx = Context.set_var(ctx, "item", item)
-          step = Parser.normalize_step(step_def)
-
-          case Step.execute(step, ctx, opts) do
-            {:ok, new_ctx, result} ->
-              updated =
-                new_ctx
-                |> Context.set_result(step.id, result)
-                |> apply_outputs(step.outputs, result)
-
-              {updated, acc ++ [result]}
-
-            {:error, reason} ->
-              {ctx, acc ++ [%{error: reason}]}
-
-            {:skip, _} ->
-              {ctx, acc}
-          end
+          execute_loop_iteration(item, step_def, ctx, acc, opts)
         end)
 
       {:ok, ctx, %{results: results}}
     else
       {:error, "loop requires items list and step definition"}
+    end
+  end
+
+  defp execute_loop_iteration(item, step_def, ctx, acc, opts) do
+    ctx = Context.set_var(ctx, "item", item)
+    step = Parser.normalize_step(step_def)
+
+    case Step.execute(step, ctx, opts) do
+      {:ok, new_ctx, result} ->
+        updated =
+          new_ctx
+          |> Context.set_result(step.id, result)
+          |> apply_outputs(step.outputs, result)
+
+        {updated, acc ++ [result]}
+
+      {:error, reason} ->
+        {ctx, acc ++ [%{error: reason}]}
+
+      {:skip, _} ->
+        {ctx, acc}
     end
   end
 

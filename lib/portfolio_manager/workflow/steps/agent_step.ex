@@ -5,21 +5,26 @@ defmodule PortfolioManager.Workflow.Steps.AgentStep do
 
   alias PortfolioManager.Workflow.Context
 
+  @prompt_actions ~w(analyze generate classify extract)
+
   @spec execute(map(), Context.t(), keyword()) :: {:ok, Context.t(), term()} | {:error, term()}
   def execute(step, context, _opts) do
     action = to_string(step.action || "")
     inputs = step.inputs || %{}
+    provider = get_provider(step, inputs)
+    dispatch_action(action, inputs, provider, context)
+  end
 
-    provider =
-      Map.get(step, :provider) || Map.get(inputs, "provider") || Map.get(inputs, :provider)
+  defp dispatch_action(action, inputs, provider, context) when action in @prompt_actions do
+    run_prompt(inputs, provider, context)
+  end
 
-    case action do
-      "analyze" -> run_prompt(inputs, provider, context)
-      "generate" -> run_prompt(inputs, provider, context)
-      "classify" -> run_prompt(inputs, provider, context)
-      "extract" -> run_prompt(inputs, provider, context)
-      _ -> {:error, "Unknown agent action: #{action}"}
-    end
+  defp dispatch_action(action, _inputs, _provider, _context) do
+    {:error, "Unknown agent action: #{action}"}
+  end
+
+  defp get_provider(step, inputs) do
+    Map.get(step, :provider) || Map.get(inputs, "provider") || Map.get(inputs, :provider)
   end
 
   defp run_prompt(inputs, provider, context) do

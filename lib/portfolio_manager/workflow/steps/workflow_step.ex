@@ -17,37 +17,42 @@ defmodule PortfolioManager.Workflow.Steps.WorkflowStep do
   end
 
   defp run_workflow(inputs, context, opts) do
-    workflow = Map.get(inputs, "workflow") || Map.get(inputs, :workflow)
-    repo_id = Map.get(inputs, "repo_id") || Map.get(inputs, :repo_id)
-    repo_ids = Map.get(inputs, "repo_ids") || Map.get(inputs, :repo_ids)
+    workflow = get_input(inputs, "workflow")
+    repo_id = get_input(inputs, "repo_id")
+    repo_ids = get_input(inputs, "repo_ids")
+    base_inputs = drop_workflow_keys(inputs)
+    run_workflow_type(workflow, repo_ids, repo_id, base_inputs, context, opts)
+  end
 
-    base_inputs =
-      inputs
-      |> Map.drop(["workflow", :workflow, "repo_id", :repo_id, "repo_ids", :repo_ids])
+  defp run_workflow_type(workflow, repo_ids, _repo_id, base_inputs, context, opts)
+       when is_list(repo_ids) do
+    results =
+      Enum.map(repo_ids, fn id ->
+        Engine.run(workflow, Keyword.merge(opts, inputs: Map.put(base_inputs, "repo_id", id)))
+      end)
 
-    cond do
-      is_list(repo_ids) ->
-        results =
-          Enum.map(repo_ids, fn id ->
-            Engine.run(workflow, Keyword.merge(opts, inputs: Map.put(base_inputs, "repo_id", id)))
-          end)
+    {:ok, context, %{results: results}}
+  end
 
-        {:ok, context, %{results: results}}
+  defp run_workflow_type(workflow, _repo_ids, repo_id, base_inputs, context, opts)
+       when not is_nil(repo_id) do
+    run_single_workflow(workflow, Map.put(base_inputs, "repo_id", repo_id), context, opts)
+  end
 
-      repo_id ->
-        case Engine.run(
-               workflow,
-               Keyword.merge(opts, inputs: Map.put(base_inputs, "repo_id", repo_id))
-             ) do
-          {:ok, result} -> {:ok, context, %{result: result}}
-          {:error, reason} -> {:error, reason}
-        end
+  defp run_workflow_type(workflow, _repo_ids, _repo_id, base_inputs, context, opts) do
+    run_single_workflow(workflow, base_inputs, context, opts)
+  end
 
-      true ->
-        case Engine.run(workflow, Keyword.merge(opts, inputs: base_inputs)) do
-          {:ok, result} -> {:ok, context, %{result: result}}
-          {:error, reason} -> {:error, reason}
-        end
+  defp run_single_workflow(workflow, inputs, context, opts) do
+    case Engine.run(workflow, Keyword.merge(opts, inputs: inputs)) do
+      {:ok, result} -> {:ok, context, %{result: result}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp drop_workflow_keys(inputs) do
+    Map.drop(inputs, ["workflow", :workflow, "repo_id", :repo_id, "repo_ids", :repo_ids])
+  end
+
+  defp get_input(inputs, key), do: Map.get(inputs, key) || Map.get(inputs, String.to_atom(key))
 end

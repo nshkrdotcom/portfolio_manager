@@ -8,8 +8,8 @@ defmodule PortfolioManager.Portfolio do
 
   use GenServer
 
-  alias PortfolioManager.Domain.{Context, Registry, Repo, Relationship}
-  alias PortfolioManager.Ports.{Storage, Git, Detection}
+  alias PortfolioManager.Domain.{Context, Registry, Relationship, Repo}
+  alias PortfolioManager.Ports.{Detection, Git, Storage}
 
   @type t :: %__MODULE__{
           path: String.t(),
@@ -372,22 +372,7 @@ defmodule PortfolioManager.Portfolio do
 
     {updated_registry, added_repos} =
       Enum.reduce(new_repos, {state.registry, []}, fn attrs, {reg, acc} ->
-        case Repo.new(attrs) do
-          {:ok, repo} ->
-            case Registry.add_repo(reg, repo) do
-              {:ok, new_reg} ->
-                # Create initial context for the repo
-                context = Context.new(repo)
-                _ = adapter.save_context(storage_state, context)
-                {new_reg, [repo | acc]}
-
-              {:error, _} ->
-                {reg, acc}
-            end
-
-          {:error, _} ->
-            {reg, acc}
-        end
+        add_new_repo(attrs, reg, acc, adapter, storage_state)
       end)
 
     new_state = %{state | registry: updated_registry}
@@ -403,6 +388,24 @@ defmodule PortfolioManager.Portfolio do
   def handle_call(:stats, _from, state) do
     stats = Registry.stats(state.registry)
     {:reply, stats, state}
+  end
+
+  defp add_new_repo(attrs, reg, acc, adapter, storage_state) do
+    case Repo.new(attrs) do
+      {:ok, repo} ->
+        case Registry.add_repo(reg, repo) do
+          {:ok, new_reg} ->
+            context = Context.new(repo)
+            _ = adapter.save_context(storage_state, context)
+            {new_reg, [repo | acc]}
+
+          {:error, _} ->
+            {reg, acc}
+        end
+
+      {:error, _} ->
+        {reg, acc}
+    end
   end
 
   defp maybe_detect(_adapter, _path, false) do

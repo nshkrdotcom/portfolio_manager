@@ -109,7 +109,7 @@ defmodule PortfolioManagerTest do
 
     test "finds repos by id pattern", %{portfolio: portfolio} do
       results = PortfolioManager.search(portfolio, "repo-a")
-      assert length(results) >= 1
+      assert results != []
       assert Enum.any?(results, &(&1.id == "repo-a"))
     end
 

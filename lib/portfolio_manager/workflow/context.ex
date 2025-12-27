@@ -135,68 +135,72 @@ defmodule PortfolioManager.Workflow.Context do
   """
   @spec evaluate_condition(t(), String.t()) :: boolean()
   def evaluate_condition(%__MODULE__{} = ctx, condition) when is_binary(condition) do
-    cond do
-      String.contains?(condition, " in ") ->
-        [left, right] = String.split(condition, " in ", parts: 2)
-        value = parse_value(String.trim(left))
-        collection = resolve_value(ctx, String.trim(right))
-        is_list(collection) and value in collection
-
-      String.contains?(condition, "==") ->
-        [left, right] = String.split(condition, "==", parts: 2)
-        resolve_value(ctx, String.trim(left)) == parse_value(String.trim(right))
-
-      String.contains?(condition, "!=") ->
-        [left, right] = String.split(condition, "!=", parts: 2)
-        resolve_value(ctx, String.trim(left)) != parse_value(String.trim(right))
-
-      String.contains?(condition, ">=") ->
-        [left, right] = String.split(condition, ">=", parts: 2)
-
-        compare_numbers(
-          resolve_value(ctx, String.trim(left)),
-          parse_value(String.trim(right)),
-          :>=
-        )
-
-      String.contains?(condition, "<=") ->
-        [left, right] = String.split(condition, "<=", parts: 2)
-
-        compare_numbers(
-          resolve_value(ctx, String.trim(left)),
-          parse_value(String.trim(right)),
-          :<=
-        )
-
-      String.contains?(condition, ">") ->
-        [left, right] = String.split(condition, ">", parts: 2)
-
-        compare_numbers(
-          resolve_value(ctx, String.trim(left)),
-          parse_value(String.trim(right)),
-          :>
-        )
-
-      String.contains?(condition, "<") ->
-        [left, right] = String.split(condition, "<", parts: 2)
-
-        compare_numbers(
-          resolve_value(ctx, String.trim(left)),
-          parse_value(String.trim(right)),
-          :<
-        )
-
-      String.starts_with?(condition, "!") ->
-        key = String.trim_leading(condition, "!")
-        !truthy?(resolve_value(ctx, String.trim(key)))
-
-      true ->
-        truthy?(resolve_value(ctx, String.trim(condition)))
-    end
+    evaluate_condition_impl(ctx, condition)
   end
 
   def evaluate_condition(_ctx, nil), do: true
   def evaluate_condition(_ctx, _), do: true
+
+  defp evaluate_condition_impl(ctx, condition) do
+    {operator, left, right} = parse_condition(condition)
+    apply_operator(ctx, operator, left, right)
+  end
+
+  # Operators ordered by specificity (multi-char before single-char)
+  @binary_operators [
+    {" in ", :in},
+    {"==", :==},
+    {"!=", :!=},
+    {">=", :>=},
+    {"<=", :<=},
+    {">", :>},
+    {"<", :<}
+  ]
+
+  defp parse_condition(condition) do
+    case find_binary_operator(condition) do
+      {operator, left, right} -> {operator, left, right}
+      nil -> parse_unary_condition(condition)
+    end
+  end
+
+  defp find_binary_operator(condition) do
+    Enum.find_value(@binary_operators, fn {delimiter, operator} ->
+      if String.contains?(condition, delimiter) do
+        [left, right] = String.split(condition, delimiter, parts: 2)
+        {operator, String.trim(left), String.trim(right)}
+      end
+    end)
+  end
+
+  defp parse_unary_condition("!" <> rest), do: {:not, String.trim(rest), nil}
+  defp parse_unary_condition(condition), do: {:truthy, String.trim(condition), nil}
+
+  defp apply_operator(ctx, :in, left, right) do
+    value = parse_value(left)
+    collection = resolve_value(ctx, right)
+    is_list(collection) and value in collection
+  end
+
+  defp apply_operator(ctx, :==, left, right) do
+    resolve_value(ctx, left) == parse_value(right)
+  end
+
+  defp apply_operator(ctx, :!=, left, right) do
+    resolve_value(ctx, left) != parse_value(right)
+  end
+
+  defp apply_operator(ctx, op, left, right) when op in [:>=, :<=, :>, :<] do
+    compare_numbers(resolve_value(ctx, left), parse_value(right), op)
+  end
+
+  defp apply_operator(ctx, :not, left, _right) do
+    !truthy?(resolve_value(ctx, left))
+  end
+
+  defp apply_operator(ctx, :truthy, left, _right) do
+    truthy?(resolve_value(ctx, left))
+  end
 
   # Private
 

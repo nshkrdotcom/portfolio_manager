@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.RemoveTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Remove
+
   test "removes repo and optionally keeps docs" do
     portfolio_path = create_test_portfolio()
     repo1_path = Path.join(System.tmp_dir!(), "remove_repo1_#{:rand.uniform(1_000_000)}")
@@ -26,7 +28,7 @@ defmodule Mix.Tasks.Portfolio.RemoveTest do
     Mix.Task.reenable("portfolio.remove")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Remove.run([
+      Remove.run([
         repo1.id,
         "--force",
         "--keep-docs",
@@ -38,7 +40,7 @@ defmodule Mix.Tasks.Portfolio.RemoveTest do
     Mix.Task.reenable("portfolio.remove")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Remove.run([
+      Remove.run([
         repo2.id,
         "--force",
         "--portfolio-dir",

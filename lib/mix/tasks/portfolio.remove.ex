@@ -64,52 +64,81 @@ defmodule Mix.Tasks.Portfolio.Remove do
     portfolio_path = opts[:portfolio_dir] || default_portfolio_path()
 
     case PortfolioManager.init(portfolio_path) do
-      {:ok, portfolio} ->
-        case PortfolioManager.get_repo(portfolio, repo_id) do
-          {:ok, repo} ->
-            if opts[:force] || confirm_removal(repo) do
-              case PortfolioManager.remove(portfolio, repo_id) do
-                :ok ->
-                  docs_removed = maybe_remove_docs(portfolio, repo_id, opts)
-
-                  case PortfolioManager.sync(portfolio) do
-                    :ok ->
-                      :ok
-
-                    {:error, reason} ->
-                      Mix.shell().error("Failed to save portfolio: #{inspect(reason)}")
-                      Exit.halt(:error)
-                  end
-
-                  if opts[:json] do
-                    output_json(repo_id, docs_removed)
-                  else
-                    Mix.shell().info("""
-                    #{IO.ANSI.green()}Removed #{repo_id} from portfolio#{IO.ANSI.reset()}
-                    """)
-                  end
-
-                {:error, reason} ->
-                  Mix.shell().error("Failed to remove #{repo_id}: #{inspect(reason)}")
-                  Exit.halt(:error)
-              end
-            else
-              Mix.shell().info("Cancelled")
-            end
-
-          {:error, :not_found} ->
-            Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
-            Exit.halt(:not_found)
-        end
-
-      {:error, :not_initialized} ->
-        Mix.shell().error("""
-        Portfolio not found at #{portfolio_path}
-        Run `mix portfolio.init` first.
-        """)
-
-        Exit.halt(:config)
+      {:ok, portfolio} -> handle_remove(portfolio, repo_id, opts)
+      {:error, :not_initialized} -> handle_not_initialized(portfolio_path)
     end
+  end
+
+  defp handle_remove(portfolio, repo_id, opts) do
+    case PortfolioManager.get_repo(portfolio, repo_id) do
+      {:ok, repo} -> maybe_confirm_and_remove(portfolio, repo, repo_id, opts)
+      {:error, :not_found} -> handle_not_found(repo_id)
+    end
+  end
+
+  defp maybe_confirm_and_remove(portfolio, repo, repo_id, opts) do
+    if opts[:force] || confirm_removal(repo) do
+      do_remove(portfolio, repo_id, opts)
+    else
+      Mix.shell().info("Cancelled")
+    end
+  end
+
+  defp do_remove(portfolio, repo_id, opts) do
+    case PortfolioManager.remove(portfolio, repo_id) do
+      :ok -> finalize_removal(portfolio, repo_id, opts)
+      {:error, reason} -> handle_remove_error(repo_id, reason)
+    end
+  end
+
+  defp finalize_removal(portfolio, repo_id, opts) do
+    docs_removed = maybe_remove_docs(portfolio, repo_id, opts)
+    sync_portfolio(portfolio)
+    output_removal_result(repo_id, docs_removed, opts)
+  end
+
+  defp sync_portfolio(portfolio) do
+    case PortfolioManager.sync(portfolio) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Mix.shell().error("Failed to save portfolio: #{inspect(reason)}")
+        Exit.halt(:error)
+    end
+  end
+
+  defp output_removal_result(repo_id, docs_removed, opts) do
+    if opts[:json] do
+      output_json(repo_id, docs_removed)
+    else
+      output_removal_text(repo_id)
+    end
+  end
+
+  defp output_removal_text(repo_id) do
+    Mix.shell().info("""
+    #{IO.ANSI.green()}Removed #{repo_id} from portfolio#{IO.ANSI.reset()}
+    """)
+  end
+
+  defp handle_remove_error(repo_id, reason) do
+    Mix.shell().error("Failed to remove #{repo_id}: #{inspect(reason)}")
+    Exit.halt(:error)
+  end
+
+  defp handle_not_found(repo_id) do
+    Mix.shell().error("Repository '#{repo_id}' not found in portfolio")
+    Exit.halt(:not_found)
+  end
+
+  defp handle_not_initialized(portfolio_path) do
+    Mix.shell().error("""
+    Portfolio not found at #{portfolio_path}
+    Run `mix portfolio.init` first.
+    """)
+
+    Exit.halt(:config)
   end
 
   defp confirm_removal(repo) do

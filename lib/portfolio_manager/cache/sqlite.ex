@@ -576,30 +576,47 @@ defmodule PortfolioManager.Cache.SQLite do
   end
 
   defp normalize_repo_row(%Context{} = context) do
-    repo = context.repo
     computed = context.computed || %{}
+    context_json = Jason.encode!(Context.to_map(context))
 
-    %{
-      id: repo.id,
-      name: repo.name || repo.id,
-      path: repo.path,
-      type: to_string(repo.type || "unknown"),
-      language: repo.language && to_string(repo.language),
-      status: to_string(repo.status || "unknown"),
-      priority: repo.priority && to_string(repo.priority),
-      last_commit_date: extract_last_commit_date(computed),
-      commit_count_30d: extract_commit_count_30d(computed),
-      purpose: repo.purpose || "",
-      notes: context.notes || "",
-      context_json: Jason.encode!(Context.to_map(context)),
-      updated_at: DateTime.to_iso8601(DateTime.utc_now())
-    }
+    build_repo_row(context.repo, computed, context.notes || "", context_json)
   end
 
   defp normalize_repo_row(%{repo: %Repo{} = repo} = item) do
-    computed = Map.get(item, :computed) || Map.get(item, "computed") || %{}
-    notes = Map.get(item, :notes) || Map.get(item, "notes") || ""
+    computed = get_field(item, :computed) || %{}
+    notes = get_field(item, :notes) || ""
+    context_json = Jason.encode!(%{repo: Repo.to_map(repo), computed: computed})
 
+    build_repo_row(repo, computed, notes, context_json)
+  end
+
+  defp normalize_repo_row(%Repo{} = repo) do
+    build_repo_row(repo, %{}, "", nil)
+  end
+
+  defp normalize_repo_row(map) when is_map(map) do
+    %{
+      id: get_field(map, :id),
+      name: get_field(map, :name),
+      path: get_field(map, :path),
+      type: get_field(map, :type) || "unknown",
+      language: get_field(map, :language),
+      status: get_field(map, :status) || "unknown",
+      priority: get_field(map, :priority),
+      last_commit_date: get_field(map, :last_commit_date),
+      commit_count_30d: get_field(map, :commit_count_30d),
+      purpose: get_field(map, :purpose) || "",
+      notes: get_field(map, :notes) || "",
+      context_json: get_field(map, :context_json),
+      updated_at: get_field(map, :updated_at) || DateTime.to_iso8601(DateTime.utc_now())
+    }
+  end
+
+  defp get_field(map, key) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
+
+  defp build_repo_row(%Repo{} = repo, computed, notes, context_json) do
     %{
       id: repo.id,
       name: repo.name || repo.id,
@@ -612,51 +629,13 @@ defmodule PortfolioManager.Cache.SQLite do
       commit_count_30d: extract_commit_count_30d(computed),
       purpose: repo.purpose || "",
       notes: notes,
-      context_json: Jason.encode!(%{repo: Repo.to_map(repo), computed: computed}),
+      context_json: context_json,
       updated_at: DateTime.to_iso8601(DateTime.utc_now())
-    }
-  end
-
-  defp normalize_repo_row(%Repo{} = repo) do
-    %{
-      id: repo.id,
-      name: repo.name || repo.id,
-      path: repo.path,
-      type: to_string(repo.type || "unknown"),
-      language: repo.language && to_string(repo.language),
-      status: to_string(repo.status || "unknown"),
-      priority: repo.priority && to_string(repo.priority),
-      last_commit_date: nil,
-      commit_count_30d: nil,
-      purpose: repo.purpose || "",
-      notes: "",
-      context_json: nil,
-      updated_at: DateTime.to_iso8601(DateTime.utc_now())
-    }
-  end
-
-  defp normalize_repo_row(map) when is_map(map) do
-    %{
-      id: Map.get(map, :id) || Map.get(map, "id"),
-      name: Map.get(map, :name) || Map.get(map, "name"),
-      path: Map.get(map, :path) || Map.get(map, "path"),
-      type: Map.get(map, :type) || Map.get(map, "type") || "unknown",
-      language: Map.get(map, :language) || Map.get(map, "language"),
-      status: Map.get(map, :status) || Map.get(map, "status") || "unknown",
-      priority: Map.get(map, :priority) || Map.get(map, "priority"),
-      last_commit_date: Map.get(map, :last_commit_date) || Map.get(map, "last_commit_date"),
-      commit_count_30d: Map.get(map, :commit_count_30d) || Map.get(map, "commit_count_30d"),
-      purpose: Map.get(map, :purpose) || Map.get(map, "purpose") || "",
-      notes: Map.get(map, :notes) || Map.get(map, "notes") || "",
-      context_json: Map.get(map, :context_json) || Map.get(map, "context_json"),
-      updated_at:
-        Map.get(map, :updated_at) || Map.get(map, "updated_at") ||
-          DateTime.to_iso8601(DateTime.utc_now())
     }
   end
 
   defp extract_last_commit_date(computed) do
-    case Map.get(computed, "last_commit") || Map.get(computed, :last_commit) do
+    case get_field(computed, :last_commit) do
       %{"date" => date} -> date
       %{date: date} -> date
       _ -> nil
@@ -664,7 +643,7 @@ defmodule PortfolioManager.Cache.SQLite do
   end
 
   defp extract_commit_count_30d(computed) do
-    Map.get(computed, "commit_count_30d") || Map.get(computed, :commit_count_30d)
+    get_field(computed, :commit_count_30d)
   end
 
   defp rebuild_fts(conn) do

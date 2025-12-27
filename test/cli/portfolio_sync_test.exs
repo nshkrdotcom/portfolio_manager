@@ -4,6 +4,8 @@ defmodule Mix.Tasks.Portfolio.SyncTest do
   import ExUnit.CaptureIO
   import PortfolioManager.TestHelpers
 
+  alias Mix.Tasks.Portfolio.Sync
+
   test "sync writes computed git stats and dependencies" do
     portfolio_path = create_test_portfolio()
     on_exit(fn -> cleanup_test_portfolio(portfolio_path) end)
@@ -38,7 +40,7 @@ defmodule Mix.Tasks.Portfolio.SyncTest do
     Mix.Task.reenable("portfolio.sync")
 
     capture_io(fn ->
-      Mix.Tasks.Portfolio.Sync.run([repo.id, "--portfolio-dir", portfolio_path])
+      Sync.run([repo.id, "--portfolio-dir", portfolio_path])
     end)
 
     {:ok, portfolio_after} = PortfolioManager.init(portfolio_path)

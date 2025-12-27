@@ -28,8 +28,9 @@ defmodule PortfolioManager do
 
   """
 
+  alias PortfolioManager.Cache.SQLite, as: CacheSQLite
+  alias PortfolioManager.Domain.{Context, Relationship, Repo}
   alias PortfolioManager.{Portfolio, Ports}
-  alias PortfolioManager.Domain.{Repo, Context, Relationship}
 
   @type portfolio :: GenServer.server()
 
@@ -427,33 +428,33 @@ defmodule PortfolioManager do
     case PortfolioManager.Rag.embed_one(query) do
       {:ok, query_embedding} ->
         texts = Enum.map(repo_contents, fn {_repo, content} -> content end)
+        calculate_and_rank(repo_contents, texts, query_embedding, limit, opts)
 
-        case PortfolioManager.Rag.embed(texts) do
-          {:ok, content_embeddings} ->
-            # Calculate similarities and rank
-            repo_contents
-            |> Enum.zip(content_embeddings)
-            |> Enum.map(fn {{repo, content}, embedding} ->
-              score = cosine_similarity(query_embedding, embedding)
+      {:error, _} ->
+        []
+    end
+  end
 
-              %{
-                repo_id: repo.id,
-                name: repo.name,
-                type: repo.type,
-                language: repo.language,
-                score: score,
-                snippet: String.slice(content, 0, 200)
-              }
-            end)
-            |> Enum.filter(fn result ->
-              result.score >= Keyword.get(opts, :min_score, 0.5)
-            end)
-            |> Enum.sort_by(& &1.score, :desc)
-            |> Enum.take(limit)
+  defp calculate_and_rank(repo_contents, texts, query_embedding, limit, opts) do
+    case PortfolioManager.Rag.embed(texts) do
+      {:ok, content_embeddings} ->
+        min_score = Keyword.get(opts, :min_score, 0.5)
 
-          {:error, _} ->
-            []
-        end
+        repo_contents
+        |> Enum.zip(content_embeddings)
+        |> Enum.map(fn {{repo, content}, embedding} ->
+          %{
+            repo_id: repo.id,
+            name: repo.name,
+            type: repo.type,
+            language: repo.language,
+            score: cosine_similarity(query_embedding, embedding),
+            snippet: String.slice(content, 0, 200)
+          }
+        end)
+        |> Enum.filter(&(&1.score >= min_score))
+        |> Enum.sort_by(& &1.score, :desc)
+        |> Enum.take(limit)
 
       {:error, _} ->
         []
@@ -461,11 +462,11 @@ defmodule PortfolioManager do
   end
 
   defp maybe_refresh_cache(portfolio) do
-    if PortfolioManager.Cache.SQLite.available?() do
-      index_path = PortfolioManager.Cache.SQLite.index_path(portfolio)
+    if CacheSQLite.available?() do
+      index_path = CacheSQLite.index_path(portfolio)
 
       if File.exists?(index_path) do
-        _ = PortfolioManager.Cache.SQLite.build_index(portfolio)
+        _ = CacheSQLite.build_index(portfolio)
         :ok
       else
         :ok
@@ -556,7 +557,8 @@ defmodule PortfolioManager do
           [
             context.notes || "",
             format_decisions(context.decisions),
-            format_port_info(context.repo.port)
+            format_port_info(context.repo.port),
+            docs_summary(context.computed)
           ]
       else
         parts
@@ -570,9 +572,7 @@ defmodule PortfolioManager do
   defp format_decisions(nil), do: ""
 
   defp format_decisions(decisions) do
-    decisions
-    |> Enum.map(fn d -> "#{d.title}: #{d.content}" end)
-    |> Enum.join(" ")
+    Enum.map_join(decisions, " ", fn d -> "#{d.title}: #{d.content}" end)
   end
 
   defp format_port_info(nil), do: ""
@@ -597,5 +597,12 @@ defmodule PortfolioManager do
     else
       dot / (mag_a * mag_b)
     end
+  end
+
+  defp docs_summary(nil), do: ""
+
+  defp docs_summary(computed) do
+    docs = Map.get(computed, "docs") || Map.get(computed, :docs) || %{}
+    Map.get(docs, "summary") || Map.get(docs, :summary) || ""
   end
 end

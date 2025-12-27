@@ -64,21 +64,7 @@ defmodule Mix.Tasks.Portfolio.Ask do
       {:ok, portfolio} ->
         Mix.shell().info("Processing: #{question}")
         Mix.shell().info("")
-
-        provider = parse_provider(opts[:provider])
-
-        case PortfolioManager.query(portfolio, question, provider: provider) do
-          {:ok, result} ->
-            if opts[:json] do
-              output_json(result)
-            else
-              output_formatted(result)
-            end
-
-          {:error, reason} ->
-            Mix.shell().error("Query failed: #{format_error(reason)}")
-            Exit.halt(:agent)
-        end
+        run_query(portfolio, question, opts)
 
       {:error, :not_initialized} ->
         Mix.shell().error("Portfolio not found. Run `mix portfolio.init` first.")
@@ -93,6 +79,23 @@ defmodule Mix.Tasks.Portfolio.Ask do
     }
 
     Mix.shell().info(Jason.encode!(data, pretty: true))
+  end
+
+  defp run_query(portfolio, question, opts) do
+    provider = parse_provider(opts[:provider])
+
+    case PortfolioManager.query(portfolio, question, provider: provider) do
+      {:ok, result} ->
+        if opts[:json] do
+          output_json(result)
+        else
+          output_formatted(result)
+        end
+
+      {:error, reason} ->
+        Mix.shell().error("Query failed: #{format_error(reason)}")
+        Exit.halt(:agent)
+    end
   end
 
   defp output_formatted(result) do
