@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-27
+
+### Added
+
+- Manifest-driven configuration (`config/manifests/*`)
+- Refactored application supervision around the manifest engine
+- RAG interface delegating to portfolio_index strategies
+- Graph interface and CLI tasks for ask/search/index/graph
+- New runnable examples for RAG, indexing, graph analysis, and workflows
+- Mox-based tests for RAG, graph, and CLI tasks
+- New documentation guides: Getting Started, RAG, Graph, Configuration, CLI Reference
+- ExDoc configuration for publishing guides with module grouping
+
+### Fixed
+
+- Manifest schema now accepts `rag` configuration, Neo4j/Boltx is configured via environment defaults, default manifests use Gemini adapters, pgvector types are wired for the index repo, index creation now normalizes string config, and ingestion uses the requested index ID with dimension mismatch detection
+
+### Changed
+
+- Rebuilt the examples set, refreshed the runner, and clarified setup guidance for RAG/graph demos
+- Updated dependencies to use portfolio_core and portfolio_index split
+- README refreshed for new architecture and CLI usage
+
+### Removed
+
+- Outdated guides that documented the pre-0.2.0 architecture (portfolio repo structure, workflow engine, agentic detection, SQLite cache, shell completion)
+
 ## [0.1.1] - 2025-12-26
 
 ### Added

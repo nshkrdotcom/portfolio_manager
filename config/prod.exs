@@ -1,3 +1,3 @@
 import Config
 
-# Production-specific configuration
+config :portfolio_manager, env: :production

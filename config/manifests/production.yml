@@ -1,0 +1,68 @@
+version: "1.0"
+environment: production
+
+adapters:
+  vector_store:
+    adapter: PortfolioIndex.Adapters.VectorStore.Pgvector
+    config:
+      repo: PortfolioManager.Repo
+      index_type: ivfflat
+      lists: 200
+
+  graph_store:
+    adapter: PortfolioIndex.Adapters.GraphStore.Neo4j
+    config:
+      uri: ${NEO4J_URI}
+      username: ${NEO4J_USER}
+      password: ${NEO4J_PASSWORD}
+      pool_size: 10
+
+  embedder:
+    adapter: PortfolioIndex.Adapters.Embedder.Gemini
+    config:
+      model: gemini-embedding-001
+      dimensions: 768
+
+  llm:
+    adapter: PortfolioIndex.Adapters.LLM.Gemini
+    config:
+      model: gemini-flash-lite-latest
+      max_tokens: 4096
+
+  chunker:
+    adapter: PortfolioIndex.Adapters.Chunker.Recursive
+    config:
+      chunk_size: 1000
+      chunk_overlap: 200
+
+pipelines:
+  ingestion:
+    enabled: true
+    concurrency: 20
+    batch_size: 100
+
+  embedding:
+    enabled: true
+    concurrency: 10
+    rate_limit: 200
+
+graphs:
+  default:
+    id: default
+    type: knowledge
+    config:
+      community_detection: true
+
+rag:
+  default_strategy: hybrid
+  strategies:
+    hybrid:
+      vector_weight: 0.7
+      keyword_weight: 0.3
+    self_rag:
+      critique_threshold: 3
+
+telemetry:
+  enabled: true
+  exporters:
+    - console

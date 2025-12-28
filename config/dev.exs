@@ -1,3 +1,3 @@
 import Config
 
-# Development-specific configuration
+config :portfolio_manager, env: :development

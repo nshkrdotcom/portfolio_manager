@@ -1,0 +1,33 @@
+version: "1.0"
+environment: test
+
+adapters:
+  vector_store:
+    adapter: PortfolioManager.Mocks.VectorStore
+    config: {}
+
+  graph_store:
+    adapter: PortfolioManager.Mocks.GraphStore
+    config: {}
+
+  embedder:
+    adapter: PortfolioManager.Mocks.Embedder
+    config: {}
+
+  llm:
+    adapter: PortfolioManager.Mocks.LLM
+    config: {}
+
+  chunker:
+    adapter: PortfolioManager.Mocks.Chunker
+    config: {}
+
+pipelines:
+  ingestion:
+    enabled: false
+
+  embedding:
+    enabled: false
+
+telemetry:
+  enabled: false

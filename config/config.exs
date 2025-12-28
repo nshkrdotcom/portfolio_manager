@@ -1,40 +1,52 @@
 import Config
 
+neo4j_uri = System.get_env("NEO4J_URI") || "bolt://localhost:7687"
+neo4j_user = System.get_env("NEO4J_USER") || "neo4j"
+neo4j_password = System.get_env("NEO4J_PASSWORD") || "password"
+neo4j_pool_size = String.to_integer(System.get_env("NEO4J_POOL_SIZE") || "10")
+
 config :portfolio_manager,
-  portfolio_path: "../portfolio",
-  embedding_provider: :gemini,
-  embedding_dimensions: 3072,
-  vector_index_lists: 100,
-  auto_sync: false
+  env: :development,
+  start_repo: true
 
-config :portfolio_manager, :ecto_repos, [PortfolioManager.VectorStore.Repo]
+# Configure portfolio_core's Manifest.Engine (started by portfolio_core's supervision tree)
+config :portfolio_core, :manifest, manifest_path: "config/manifests/development.yml"
 
-config :portfolio_manager, PortfolioManager.VectorStore.Repo,
-  pool_size: 5,
-  types: PortfolioManager.VectorStore.PostgrexTypes,
-  show_sensitive_data_on_connection_error: true
+config :portfolio_manager, :ecto_repos, [PortfolioManager.Repo]
 
-# RAG provider configuration
-config :rag,
-  providers: %{
-    gemini: %{
-      module: Rag.Ai.Gemini,
-      model: "gemini-2.0-flash",
-      embedding_model: "text-embedding-004"
-    },
-    claude: %{
-      module: Rag.Ai.Claude,
-      model: "claude-sonnet-4-20250514"
-    },
-    codex: %{
-      module: Rag.Ai.Codex,
-      model: "gpt-4o"
-    }
-  },
-  default_strategy: :specialist,
-  agent: %{
-    max_iterations: 10,
-    default_provider: :gemini
-  }
+config :portfolio_manager, PortfolioManager.Repo,
+  username: System.get_env("PGUSER") || "postgres",
+  password: System.get_env("PGPASSWORD") || "postgres",
+  hostname: System.get_env("PGHOST") || "localhost",
+  database: System.get_env("PGDATABASE") || "portfolio_manager_dev",
+  pool_size: 10
+
+config :portfolio_index,
+  start_repo: true,
+  start_boltx: true,
+  start_telemetry: true,
+  ecto_repos: [PortfolioIndex.Repo]
+
+config :portfolio_index, PortfolioIndex.Repo,
+  username: System.get_env("PGUSER") || "postgres",
+  password: System.get_env("PGPASSWORD") || "postgres",
+  hostname: System.get_env("PGHOST") || "localhost",
+  database: System.get_env("PGDATABASE") || "portfolio_manager_dev",
+  pool_size: 10,
+  types: PortfolioIndex.PostgrexTypes
+
+config :boltx, Boltx,
+  name: Boltx,
+  uri: neo4j_uri,
+  auth: [username: neo4j_user, password: neo4j_password],
+  pool_size: neo4j_pool_size
+
+config :hammer,
+  backend:
+    {Hammer.Backend.ETS,
+     [
+       expiry_ms: 60_000 * 60 * 2,
+       cleanup_interval_ms: 60_000 * 10
+     ]}
 
 import_config "#{config_env()}.exs"

@@ -1,152 +1,61 @@
 # Portfolio Manager Examples
 
-Working examples demonstrating Portfolio Manager features using real resources.
+## Setup
 
-## Prerequisites
-
-### Required
-- Elixir 1.15+
-- A directory with git repositories to scan
-
-### For RAG/AI Features
-Set environment variables for LLM providers:
+Ensure dependencies are installed and configured:
 
 ```bash
-# Required for embeddings and default LLM
-export GOOGLE_API_KEY="your-gemini-api-key"
-
-# Optional additional providers
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-export OPENAI_API_KEY="your-openai-api-key"
+# Set environment variables
+export GEMINI_API_KEY=your-key
+export NEO4J_URI=bolt://localhost:7687
+export NEO4J_USER=neo4j
+export NEO4J_PASSWORD=password
 ```
 
-## Quick Start
+Start required services (Postgres with pgvector; Neo4j for graph examples) using
+your preferred tooling.
 
 ```bash
-# Install dependencies
-mix deps.get
-
-# Run all examples
-./examples/run_all.sh
-
-# Or run individual examples
-mix run examples/01_basic_init.exs
+# Create the database and run PortfolioIndex migrations
+mix ecto.create -r PortfolioIndex.Repo
+mix ecto.migrate -r PortfolioIndex.Repo
 ```
-
-## Examples Overview
-
-### Basic Operations
-
-| Example | Description |
-|---------|-------------|
-| `01_basic_init.exs` | Initialize a portfolio and scan for repos |
-| `02_list_and_filter.exs` | List repos with various filters |
-| `03_repo_details.exs` | Get detailed repo information |
-
-### Context Management
-
-| Example | Description |
-|---------|-------------|
-| `04_update_context.exs` | Update repo metadata and context |
-| `05_notes_and_decisions.exs` | Add notes and architectural decisions |
-
-### Relationships
-
-| Example | Description |
-|---------|-------------|
-| `06_relationships.exs` | Create and query repo relationships |
-| `14_relationship_graph.exs` | Graph visualization, path finding, cycle detection |
-
-### Search
-
-| Example | Description |
-|---------|-------------|
-| `07_text_search.exs` | Basic text search across repos |
-| `08_semantic_search.exs` | Vector-based semantic search (requires API key) |
-
-### RAG/AI Features
-
-| Example | Description |
-|---------|-------------|
-| `09_agentic_query.exs` | Ask questions using AI agent with tools |
-| `10_chat_session.exs` | Multi-turn conversation with memory |
-| `16_agentic_detection.exs` | LLM-powered purpose/type/status detection |
-
-### Editing & Management
-
-| Example | Description |
-|---------|-------------|
-| `12_edit_and_remove.exs` | Edit repo metadata and remove repos |
-
-### Workflow Engine
-
-| Example | Description |
-|---------|-------------|
-| `13_workflow_engine.exs` | List, parse, and run YAML-defined workflows |
-
-### Performance & Caching
-
-| Example | Description |
-|---------|-------------|
-| `15_sqlite_cache.exs` | SQLite-based caching for fast queries |
-
-### Advanced
-
-| Example | Description |
-|---------|-------------|
-| `11_full_workflow.exs` | Complete workflow: init, scan, enrich, query |
 
 ## Running Examples
 
-### Run All Examples
+These examples rely on the adapters configured in `config/manifests/development.yml`.
+By default they use the Gemini embedder/LLM in `portfolio_index`, so set
+`GEMINI_API_KEY` or swap the manifest to another provider. Graph examples also
+require a `graph_store` adapter (such as Neo4j).
+The `rag_query` example expects an index named `default`, so run `index_repo`
+first or adjust the `index_id` in the script. You can also set
+`PORTFOLIO_INDEX_ID` to keep all examples aligned on the same index.
+
+If you previously created an index with different embedding dimensions,
+drop the old `vectors_<index_id>` table (and its entry in
+`vector_index_registry`) or switch to a fresh index ID.
 
 ```bash
-# Basic examples (no API key required)
-./examples/run_all.sh --basic
+# Run all examples
+./examples/run_all.sh
 
-# All examples including AI features
-./examples/run_all.sh --all
+# List available examples
+./examples/run_all.sh --list
 
-# Specific example
-mix run examples/01_basic_init.exs
+# Run a single example
+./examples/run_all.sh rag
 ```
 
-### Example Output
-
-Each example prints its progress and results to stdout. Successful runs end with a summary.
-
-## Configuration
-
-Examples use a temporary portfolio at `/tmp/portfolio_manager_examples` by default. Override with:
-
 ```bash
-export PORTFOLIO_EXAMPLES_PATH="/path/to/portfolio"
-```
+# Basic RAG query
+mix run examples/rag_query.exs
 
-## Troubleshooting
+# Index a repository
+mix run examples/index_repo.exs
 
-### "No repos found"
-- Ensure you have git repositories in `~/projects` or modify the scan path in the examples
+# Graph analysis
+mix run examples/graph_analysis.exs
 
-### "API key not set"
-- RAG examples require `GOOGLE_API_KEY` at minimum
-- Check the Prerequisites section above
-
-### "Connection refused"
-- Ensure network access for API calls
-- Check firewall settings
-
-## Example Data
-
-Examples will create/use these repos if available:
-- Scans `~/projects` and `~/work` directories
-- Creates test relationships between discovered repos
-- Adds sample notes and decisions
-
-## Cleanup
-
-Remove the example portfolio:
-
-```bash
-rm -rf /tmp/portfolio_manager_examples
+# Full workflow
+mix run examples/full_workflow.exs
 ```
