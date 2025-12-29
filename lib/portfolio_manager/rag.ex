@@ -84,7 +84,93 @@ defmodule PortfolioManager.RAG do
     end
   end
 
+  @doc """
+  Stream a RAG query response.
+
+  Retrieves context synchronously, then streams the LLM response.
+
+  ## Example
+
+      PortfolioManager.RAG.stream_query("How does this work?", fn chunk ->
+        IO.write(chunk)
+      end)
+  """
+  @spec stream_query(String.t(), (String.t() -> any()), keyword()) :: :ok | {:error, term()}
+  def stream_query(question, callback, opts \\ []) when is_function(callback, 1) do
+    strategy = Keyword.get(opts, :strategy, :hybrid)
+    top_k = Keyword.get(opts, :top_k, 5)
+
+    # Remove RAG-specific options before passing to Router
+    router_opts = Keyword.drop(opts, [:strategy, :top_k, :k, :index_id, :graph_id])
+
+    with {:ok, context} <- retrieve(question, strategy, top_k, opts) do
+      prompt = build_prompt(question, context)
+
+      PortfolioManager.Router.stream(
+        [%{role: :user, content: prompt}],
+        callback,
+        router_opts
+      )
+    end
+  end
+
+  @doc """
+  Stream search results as they are found.
+  """
+  @spec stream_search(String.t(), (map() -> any()), keyword()) :: :ok | {:error, term()}
+  def stream_search(query_text, callback, opts \\ []) when is_function(callback, 1) do
+    limit = Keyword.get(opts, :limit, 10)
+
+    case do_search(query_text, opts) do
+      {:ok, results} ->
+        results
+        |> Enum.take(limit)
+        |> Enum.each(fn result ->
+          callback.(result)
+        end)
+
+        :ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
   # Private functions
+
+  defp retrieve(question, _strategy, top_k, opts) do
+    case search(question, Keyword.put(opts, :k, top_k)) do
+      {:ok, items} -> {:ok, items}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp build_prompt(question, context_items) do
+    context =
+      Enum.map_join(context_items, "\n\n---\n\n", fn item ->
+        item[:content] || item.content || ""
+      end)
+
+    """
+    Answer the question based on the provided context. Be concise and accurate.
+
+    Context:
+    #{context}
+
+    Question: #{question}
+    """
+  end
+
+  defp do_search(query_text, opts) do
+    {embedder, embedder_opts} = get_adapter(:embedder)
+    {vector_store, _vector_opts} = get_adapter(:vector_store)
+    index_id = Keyword.get(opts, :index_id, "default")
+    k = Keyword.get(opts, :k, 10)
+
+    with {:ok, embedding} <- embedder.embed(query_text, embedder_opts) do
+      vector_store.search(index_id, embedding.vector, k, opts)
+    end
+  end
 
   defp default_strategy do
     manifest = safe_manifest()
@@ -100,8 +186,8 @@ defmodule PortfolioManager.RAG do
 
   defp get_adapter(port_name) do
     case Registry.get(port_name) do
-      {module, config} -> {module, config}
-      nil -> raise "Adapter not configured for #{port_name}"
+      {:ok, %{module: module, config: config}} -> {module, config}
+      {:error, :not_found} -> raise "Adapter not configured for #{port_name}"
     end
   end
 
@@ -118,8 +204,8 @@ defmodule PortfolioManager.RAG do
     [:vector_store, :embedder, :llm, :graph_store, :chunker]
     |> Enum.reduce(%{}, fn port, acc ->
       case Registry.get(port) do
-        nil -> acc
-        adapter -> Map.put(acc, port, adapter)
+        {:ok, adapter} -> Map.put(acc, port, adapter)
+        {:error, :not_found} -> acc
       end
     end)
   end

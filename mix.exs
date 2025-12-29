@@ -1,7 +1,7 @@
 defmodule PortfolioManager.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/nshkrdotcom/portfolio_manager"
 
   def project do
@@ -49,10 +49,9 @@ defmodule PortfolioManager.MixProject do
 
   defp deps do
     [
-      # Core packages (published on Hex).
-      # Using local path deps to align with repo changes.
-      {:portfolio_core, "~> 0.1.1"},
-      {:portfolio_index, "~> 0.1.1"},
+      # Core packages
+      {:portfolio_core, "~> 0.3.0"},
+      {:portfolio_index, "~> 0.3.0"},
 
       # Web framework (optional, for API)
       {:phoenix, "~> 1.7", optional: true},
@@ -104,6 +103,10 @@ defmodule PortfolioManager.MixProject do
         "guides/graph.md",
         "guides/configuration.md",
         "guides/cli.md",
+        "guides/router.md",
+        "guides/agent.md",
+        "guides/pipeline.md",
+        "guides/streaming.md",
         "CHANGELOG.md",
         "LICENSE"
       ],
@@ -114,7 +117,14 @@ defmodule PortfolioManager.MixProject do
         Core: [
           PortfolioManager,
           PortfolioManager.RAG,
-          PortfolioManager.Graph
+          PortfolioManager.Graph,
+          PortfolioManager.Router,
+          PortfolioManager.Agent,
+          PortfolioManager.Pipeline
+        ],
+        Agent: [
+          PortfolioManager.Agent.Tool,
+          PortfolioManager.Agent.Session
         ],
         Domain: [
           PortfolioManager.Domain.Registry

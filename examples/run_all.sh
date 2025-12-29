@@ -21,6 +21,10 @@ EXAMPLES=(
   "rag_query.exs"
   "graph_analysis.exs"
   "full_workflow.exs"
+  "router_usage.exs"
+  "streaming_query.exs"
+  "agent_task.exs"
+  "pipeline_workflow.exs"
 )
 
 resolve_example() {
@@ -29,6 +33,10 @@ resolve_example() {
     index|index_repo) echo "index_repo.exs" ;;
     graph|graph_analysis) echo "graph_analysis.exs" ;;
     full|full_workflow) echo "full_workflow.exs" ;;
+    router|router_usage) echo "router_usage.exs" ;;
+    stream|streaming|streaming_query) echo "streaming_query.exs" ;;
+    agent|agent_task) echo "agent_task.exs" ;;
+    pipeline|pipeline_workflow) echo "pipeline_workflow.exs" ;;
     *.exs) echo "$1" ;;
     *) echo "" ;;
   esac

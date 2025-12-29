@@ -76,8 +76,8 @@ defmodule PortfolioManager.Graph do
 
   defp get_adapter do
     case Registry.get(:graph_store) do
-      {module, _config} -> module
-      nil -> raise "Graph store adapter not configured"
+      {:ok, %{module: module}} -> module
+      {:error, :not_found} -> raise "Graph store adapter not configured"
     end
   end
 

@@ -22,6 +22,28 @@ adapters:
     adapter: PortfolioManager.Mocks.Chunker
     config: {}
 
+router:
+  strategy: fallback
+  health_check_interval: 0
+  providers:
+    - name: test_llm
+      module: PortfolioManager.Mocks.LLM
+      config: {}
+      capabilities:
+        - generation
+        - reasoning
+        - code
+      priority: 1
+
+agent:
+  max_iterations: 5
+  timeout: 30000
+  tools:
+    - search_code
+    - read_file
+    - list_files
+    - get_graph_context
+
 pipelines:
   ingestion:
     enabled: false

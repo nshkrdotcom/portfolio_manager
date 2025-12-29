@@ -9,7 +9,7 @@ defmodule PortfolioManager.GraphTest do
   setup :verify_on_exit!
 
   setup do
-    PortfolioCore.Registry.register(:graph_store, {Mocks.GraphStore, []})
+    PortfolioCore.Registry.register(:graph_store, Mocks.GraphStore, [])
 
     on_exit(fn ->
       PortfolioCore.Registry.clear()

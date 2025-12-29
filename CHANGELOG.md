@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-12-28
+
+### Breaking
+
+- `PortfolioManager.Agent.Session.new/0` replaced by `new/1` (context/metadata supported; message schema normalized)
+- `PortfolioManager.Agent.run/2` replaced by session-based `process/3` and `process_with_tools/4`
+- `PortfolioManager.Router.complete/2` replaced by `execute/2` and `execute_with_retry/2`
+- Tool definitions now support `PortfolioManager.Agent.Tool` behaviour modules
+
+### Added
+
+- `PortfolioManager.Router` - Multi-provider LLM routing
+  - Strategies: fallback, round_robin, specialist, cost_optimized
+  - Health checking with configurable intervals
+  - Streaming support
+  - Supports Gemini, Anthropic (via claude_agent_sdk), OpenAI (via codex_sdk)
+  - `route/2` exposes provider selection
+  - `execute/2` for route + execute in one call
+  - `execute_with_retry/2` for retry/fallback execution
+  - `report_result/3` for strategy feedback loop
+  - `next_provider/2` for explicit fallback handling
+  - `get_provider/1` for provider lookup
+  - `unregister_provider/1` for removing providers
+  - Fallback strategy with failure tracking and thresholds
+  - Specialist strategy with keyword detection
+
+- `PortfolioManager.RAG.stream_query/3` - Stream RAG responses
+- `PortfolioManager.RAG.stream_search/3` - Stream search results
+
+- `PortfolioManager.Agent` - Tool-using agent framework
+  - Built-in tools: search_code, read_file, list_files, get_graph_context
+  - Configurable max iterations
+  - Session management
+  - `process/3` for session-based LLM interaction without tools
+  - `process_with_tools/4` for agentic tool loops
+  - `with_context/3` for context injection across iterations
+  - Improved tool call parsing with nested JSON support
+
+- `PortfolioManager.Agent.Session` enhancements
+  - `context`, `metadata`, `tool_results`, `updated_at` fields for session state
+  - `add_tool_result/3` for structured tool results
+  - `to_llm_messages/1` for LLM-ready message formatting
+  - `token_estimate/1` for rough token counting
+  - `last_messages/2` for conversation windowing
+  - `clear_messages/1` preserving context and tool results
+  - `with_context/3` and `get_context/2` for context management
+
+- `PortfolioManager.Agent.Tool` enhancements
+  - Tool behaviour with `@callback` definitions
+  - `to_spec/1` and `to_spec/2` for tool specification generation
+  - `validate_args/2` for argument validation
+  - `format_for_llm/1` for LLM prompt formatting
+  - `default_context/0` and `context_from_session/1` for context management
+
+- `PortfolioManager.Pipeline` - DAG-based workflow orchestration
+  - Dependency resolution
+  - Step caching
+  - Timeout handling
+  - Telemetry events
+  - Parallel step execution with `parallel: true` flag
+  - `on_error` policies: `:halt`, `:continue`, `{:retry, count}`
+  - `description`, `config`, `metadata` fields on Pipeline struct
+  - `new/2` and `add_step/4` for programmatic pipeline construction
+
+- `PortfolioManager.Evaluation` - RAG quality evaluation
+  - `evaluate_rag_triad/2` - Context relevance, groundedness, answer relevance (1-5 scores with reasoning + overall)
+  - `detect_hallucination/2` - Hallucination detection with evidence
+  - Telemetry events for evaluation metrics
+
+- `PortfolioManager.Generation` - Unified RAG state container
+  - Tracks full lifecycle: query -> embedding -> retrieval -> context -> prompt -> response -> evaluation
+  - Builder functions: `with_embedding/2`, `with_retrieval/2`, `with_context/3`, etc.
+  - Error tracking and halt support
+
+- CLI `--stream` flag for `mix portfolio.ask`
+- Manifest configuration for router, agent, and pipelines
+- New guides: router.md, agent.md, pipeline.md, streaming.md
+- New examples: router_usage.exs, streaming_query.exs, agent_task.exs, pipeline_workflow.exs
+
+### Changed
+
+- Updated dependency on portfolio_core to ~> 0.2.0
+- Updated dependency on portfolio_index to ~> 0.2.0
+- Application now starts Router GenServer
+- Router strategies maintain state for failure tracking
+- Session messages now include timestamps and normalized structure
+
+### Dependencies
+
+- Requires portfolio_core ~> 0.2.0
+- Requires portfolio_index ~> 0.2.0 (includes claude_agent_sdk and codex_sdk adapters)
+
 ## [0.2.0] - 2025-12-27
 
 ### Added

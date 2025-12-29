@@ -13,14 +13,14 @@
 
 Portfolio Manager is the application layer on top of `portfolio_core` and `portfolio_index`. It provides CLI workflows, RAG query interfaces, graph tooling, and manifest-driven configuration for managing code portfolios.
 
-## Quick Install (0.2.0)
+## Quick Install (0.3.0)
 
 Add the dependency in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:portfolio_manager, "~> 0.2.0"}
+    {:portfolio_manager, "~> 0.3.0"}
   ]
 end
 ```
@@ -38,6 +38,61 @@ mix deps.get
 - Graph utilities for dependency and knowledge graphs
 - CLI tasks for ask/search/index/graph operations
 - Runnable examples under `examples/`
+
+### Multi-Provider Routing (v0.3.0)
+
+Route LLM requests across multiple providers with intelligent strategies:
+
+```elixir
+# Automatic routing
+{:ok, response} = PortfolioManager.Router.complete(messages)
+
+# Force specific strategy
+{:ok, response} = PortfolioManager.Router.complete(messages, strategy: :specialist)
+
+# Route by task type
+{:ok, response} = PortfolioManager.Router.complete(messages, task_type: :code)
+
+# Stream responses
+PortfolioManager.Router.stream(messages, &IO.write/1)
+```
+
+### Streaming Responses (v0.3.0)
+
+Stream RAG query responses for better UX:
+
+```elixir
+PortfolioManager.RAG.stream_query("How does this work?", fn chunk ->
+  IO.write(chunk)
+end)
+
+# CLI
+mix portfolio.ask "Your question" --stream
+```
+
+### Agent Framework (v0.3.0)
+
+Use tool-based agents for complex tasks:
+
+```elixir
+PortfolioManager.Agent.run("Analyze this codebase and suggest improvements",
+  tools: [:search_code, :read_file, :get_graph_context]
+)
+```
+
+### Pipeline Orchestration (v0.3.0)
+
+Build complex workflows with dependency management:
+
+```elixir
+import PortfolioManager.Pipeline
+
+run(:analysis, %{repo: "/path/to/repo"}) do
+  step :scan, &scan_files/1
+  step :analyze, &analyze/1, depends_on: [:scan]
+  step :report, &generate_report/1, depends_on: [:analyze]
+end
+```
 
 ## Quickstart
 

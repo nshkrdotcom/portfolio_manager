@@ -13,10 +13,10 @@ defmodule PortfolioManager.CliTest do
     Mix.Task.clear()
     PortfolioCore.Registry.clear()
 
-    PortfolioCore.Registry.register(:vector_store, {Mocks.VectorStore, []})
-    PortfolioCore.Registry.register(:embedder, {Mocks.Embedder, []})
-    PortfolioCore.Registry.register(:llm, {Mocks.LLM, []})
-    PortfolioCore.Registry.register(:graph_store, {Mocks.GraphStore, []})
+    PortfolioCore.Registry.register(:vector_store, Mocks.VectorStore, [])
+    PortfolioCore.Registry.register(:embedder, Mocks.Embedder, [])
+    PortfolioCore.Registry.register(:llm, Mocks.LLM, [])
+    PortfolioCore.Registry.register(:graph_store, Mocks.GraphStore, [])
 
     :ok
   end
@@ -28,9 +28,13 @@ defmodule PortfolioManager.CliTest do
         {:ok, %{vector: List.duplicate(0.1, 3), token_count: 2, model: "test", dimensions: 3}}
       end)
 
+      # Hybrid strategy calls vector search and fulltext search
       Mocks.VectorStore
       |> expect(:search, fn _index, _vector, _k, _opts ->
         {:ok, [%{id: "doc1", score: 0.9, metadata: %{}, content: "Elixir."}]}
+      end)
+      |> expect(:fulltext_search, fn _index, _query, _k, _opts ->
+        {:ok, []}
       end)
 
       Mocks.LLM
@@ -54,9 +58,13 @@ defmodule PortfolioManager.CliTest do
         {:ok, %{vector: List.duplicate(0.1, 3), token_count: 2, model: "test", dimensions: 3}}
       end)
 
+      # Hybrid strategy calls vector search and fulltext search
       Mocks.VectorStore
       |> expect(:search, fn _index, _vector, _k, _opts ->
         {:ok, [%{id: "doc1", score: 0.9, metadata: %{}, content: "Search result."}]}
+      end)
+      |> expect(:fulltext_search, fn _index, _query, _k, _opts ->
+        {:ok, []}
       end)
 
       output =
@@ -94,6 +102,11 @@ defmodule PortfolioManager.CliTest do
 
       File.mkdir_p!(tmp_dir)
       File.write!(Path.join(tmp_dir, "sample.md"), "# Hello\n")
+
+      Mocks.Embedder
+      |> expect(:dimensions, fn _model ->
+        768
+      end)
 
       Mocks.VectorStore
       |> expect(:create_index, fn index_id, config ->

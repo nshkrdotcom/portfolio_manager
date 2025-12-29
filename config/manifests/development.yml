@@ -35,6 +35,47 @@ adapters:
       chunk_size: 1000
       chunk_overlap: 200
 
+router:
+  strategy: fallback
+  health_check_interval: 30000
+  providers:
+    - name: gemini
+      module: PortfolioIndex.Adapters.LLM.Gemini
+      config:
+        model: gemini-2.0-flash-exp
+      capabilities:
+        - generation
+        - code
+        - reasoning
+      priority: 1
+
+    # Uses claude_agent_sdk wrapper - defaults to SDK's default model
+    - name: claude
+      module: PortfolioIndex.Adapters.LLM.Anthropic
+      config: {}
+      capabilities:
+        - reasoning
+        - analysis
+      priority: 2
+
+    # Uses codex_sdk wrapper - defaults to SDK's default model
+    - name: openai
+      module: PortfolioIndex.Adapters.LLM.OpenAI
+      config: {}
+      capabilities:
+        - generation
+        - code
+      priority: 3
+
+agent:
+  max_iterations: 10
+  timeout: 300000
+  tools:
+    - search_code
+    - read_file
+    - list_files
+    - get_graph_context
+
 pipelines:
   ingestion:
     enabled: true

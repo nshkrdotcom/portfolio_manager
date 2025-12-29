@@ -17,6 +17,7 @@ defmodule PortfolioManager.Application do
         # Note: PortfolioCore.Manifest.Engine is started by portfolio_core's supervision tree.
         # Configure it via :portfolio_core, :manifest in config.exs
         PortfolioManager.Domain.Registry,
+        router_child(),
         pipeline_children()
       ]
       |> List.flatten()
@@ -45,6 +46,50 @@ defmodule PortfolioManager.Application do
       PortfolioManager.Repo
     end
   end
+
+  defp router_child do
+    if Application.get_env(:portfolio_manager, :start_router, true) do
+      manifest = Application.get_env(:portfolio_manager, :manifest, %{})
+      router_config = get_in(manifest, [:router]) || %{}
+
+      strategy = to_strategy(router_config[:strategy])
+      health_interval = router_config[:health_check_interval] || 30_000
+      providers = build_router_providers(router_config[:providers] || [])
+
+      {PortfolioManager.Router,
+       strategy: strategy, providers: providers, health_check_interval: health_interval}
+    end
+  end
+
+  defp to_strategy(nil), do: :fallback
+  defp to_strategy(s) when is_atom(s), do: s
+  defp to_strategy(s) when is_binary(s), do: String.to_atom(s)
+
+  defp build_router_providers(provider_configs) do
+    Enum.map(provider_configs, fn config ->
+      %{
+        name: to_atom(config[:name]),
+        module: resolve_module(config[:module]),
+        config: config[:config] || %{},
+        capabilities: Enum.map(config[:capabilities] || [], &to_atom/1),
+        priority: config[:priority] || 1,
+        cost_per_token: config[:cost_per_token]
+      }
+    end)
+  end
+
+  defp resolve_module(nil), do: nil
+
+  defp resolve_module(module) when is_atom(module), do: module
+
+  defp resolve_module(module) when is_binary(module) do
+    String.to_existing_atom("Elixir.#{module}")
+  rescue
+    ArgumentError -> String.to_atom("Elixir.#{module}")
+  end
+
+  defp to_atom(value) when is_atom(value), do: value
+  defp to_atom(value) when is_binary(value), do: String.to_atom(value)
 
   defp manifest_path do
     env = Application.get_env(:portfolio_manager, :env, :development)

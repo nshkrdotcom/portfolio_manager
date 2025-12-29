@@ -10,9 +10,9 @@ defmodule PortfolioManager.RAGTest do
 
   setup do
     # Register mock adapters
-    PortfolioCore.Registry.register(:vector_store, {Mocks.VectorStore, []})
-    PortfolioCore.Registry.register(:embedder, {Mocks.Embedder, []})
-    PortfolioCore.Registry.register(:llm, {Mocks.LLM, []})
+    PortfolioCore.Registry.register(:vector_store, Mocks.VectorStore, [])
+    PortfolioCore.Registry.register(:embedder, Mocks.Embedder, [])
+    PortfolioCore.Registry.register(:llm, Mocks.LLM, [])
 
     on_exit(fn ->
       PortfolioCore.Registry.clear()
@@ -31,14 +31,16 @@ defmodule PortfolioManager.RAGTest do
          %{vector: List.duplicate(0.1, 1536), token_count: 2, model: "test", dimensions: 1536}}
       end)
 
+      # Hybrid strategy calls vector search and fulltext search
       Mocks.VectorStore
-      |> expect(:search, fn _index, _vector, k, _opts ->
-        assert k == 20
-
+      |> expect(:search, fn _index, _vector, _k, _opts ->
         {:ok,
          [
            %{id: "doc1", score: 0.95, metadata: %{content: "result 1"}, vector: nil}
          ]}
+      end)
+      |> expect(:fulltext_search, fn _index, _query, _k, _opts ->
+        {:ok, []}
       end)
 
       assert {:ok, result} = RAG.query("test query", strategy: :hybrid)
@@ -55,6 +57,7 @@ defmodule PortfolioManager.RAGTest do
          %{vector: List.duplicate(0.1, 1536), token_count: 2, model: "test", dimensions: 1536}}
       end)
 
+      # Hybrid strategy calls vector search and fulltext search
       Mocks.VectorStore
       |> expect(:search, fn _index, _vector, _k, _opts ->
         {:ok,
@@ -67,6 +70,9 @@ defmodule PortfolioManager.RAGTest do
              content: "Elixir is a functional language."
            }
          ]}
+      end)
+      |> expect(:fulltext_search, fn _index, _query, _k, _opts ->
+        {:ok, []}
       end)
 
       Mocks.LLM

@@ -58,4 +58,41 @@ mix run examples/graph_analysis.exs
 
 # Full workflow
 mix run examples/full_workflow.exs
+
+# Router usage (v0.3.0)
+mix run examples/router_usage.exs
+
+# Streaming query (v0.3.0)
+mix run examples/streaming_query.exs
+
+# Agent task (v0.3.0)
+mix run examples/agent_task.exs
+
+# Pipeline workflow (v0.3.0)
+mix run examples/pipeline_workflow.exs
 ```
+
+## v0.3.0 Examples
+
+### Router Usage
+
+Demonstrates multi-provider LLM routing with different strategies:
+- Fallback routing
+- Specialist routing by task type
+- Streaming responses
+
+### Streaming Query
+
+Shows how to stream RAG queries and search results incrementally.
+
+### Agent Task
+
+Demonstrates the tool-using agent framework for complex code analysis tasks.
+
+### Pipeline Workflow
+
+Shows DAG-based pipeline orchestration with:
+- Step dependencies
+- Caching
+- Telemetry events
+- Timeout handling
