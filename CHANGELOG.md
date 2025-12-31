@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-12-30
+
+### Added
+
+- `mix portfolio.eval.generate` - Generate synthetic evaluation test cases
+  - `--sample-size` - Number of chunks to sample (default: 10)
+  - `--collection` - Filter chunks by collection
+  - `--source-id` - Filter by source document ID
+  - Uses LLM to generate realistic questions from chunk content
+- `mix portfolio.eval.run` - Run retrieval evaluation
+  - `--mode` - Search mode: semantic, fulltext, hybrid (default: semantic)
+  - `--collection` - Filter test cases by collection
+  - `--generate` - Auto-generate test cases if none exist
+  - `--format` - Output format: table, json (default: table)
+  - `--fail-under` - Exit with code 1 if recall@5 below threshold (CI integration)
+  - Displays Recall@K, Precision@K, MRR, Hit Rate@K metrics
+- `mix portfolio.reembed` - Re-embed documents with current embedding model
+  - Batch re-embedding with configurable batch size
+  - Collection filtering for targeted re-embedding
+  - Progress output with `--verbose` flag
+  - Dry-run mode for previewing operations
+- `mix portfolio.diagnostics` - Show system diagnostics and health
+  - Collection, document, and chunk counts
+  - Embedding coverage statistics
+  - Failed document counts
+  - Configuration summary
+  - JSON output format support
+
 ## [0.3.0] - 2025-12-28
 
 ### Breaking

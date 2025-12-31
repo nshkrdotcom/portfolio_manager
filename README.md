@@ -13,14 +13,14 @@
 
 Portfolio Manager is the application layer on top of `portfolio_core` and `portfolio_index`. It provides CLI workflows, RAG query interfaces, graph tooling, and manifest-driven configuration for managing code portfolios.
 
-## Quick Install (0.3.0)
+## Quick Install (0.3.1)
 
 Add the dependency in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:portfolio_manager, "~> 0.3.0"}
+    {:portfolio_manager, "~> 0.3.1"}
   ]
 end
 ```
@@ -39,7 +39,7 @@ mix deps.get
 - CLI tasks for ask/search/index/graph operations
 - Runnable examples under `examples/`
 
-### Multi-Provider Routing (v0.3.0)
+### Multi-Provider Routing (v0.3.1)
 
 Route LLM requests across multiple providers with intelligent strategies:
 
@@ -57,7 +57,7 @@ Route LLM requests across multiple providers with intelligent strategies:
 PortfolioManager.Router.stream(messages, &IO.write/1)
 ```
 
-### Streaming Responses (v0.3.0)
+### Streaming Responses (v0.3.1)
 
 Stream RAG query responses for better UX:
 
@@ -70,7 +70,7 @@ end)
 mix portfolio.ask "Your question" --stream
 ```
 
-### Agent Framework (v0.3.0)
+### Agent Framework (v0.3.1)
 
 Use tool-based agents for complex tasks:
 
@@ -80,7 +80,7 @@ PortfolioManager.Agent.run("Analyze this codebase and suggest improvements",
 )
 ```
 
-### Pipeline Orchestration (v0.3.0)
+### Pipeline Orchestration (v0.3.1)
 
 Build complex workflows with dependency management:
 

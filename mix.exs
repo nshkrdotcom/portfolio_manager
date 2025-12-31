@@ -1,7 +1,7 @@
 defmodule PortfolioManager.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.3.1"
   @source_url "https://github.com/nshkrdotcom/portfolio_manager"
 
   def project do
@@ -50,8 +50,8 @@ defmodule PortfolioManager.MixProject do
   defp deps do
     [
       # Core packages
-      {:portfolio_core, "~> 0.3.0"},
-      {:portfolio_index, "~> 0.3.0"},
+      {:portfolio_core, "~> 0.3.1"},
+      {:portfolio_index, "~> 0.3.1"},
 
       # Web framework (optional, for API)
       {:phoenix, "~> 1.7", optional: true},
