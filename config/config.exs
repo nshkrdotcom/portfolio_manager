@@ -41,11 +41,16 @@ config :boltx, Boltx,
   auth: [username: neo4j_user, password: neo4j_password],
   pool_size: neo4j_pool_size
 
+# Hammer rate limiter config (required by portfolio_index hex package 0.3.1)
+# Note: This is a workaround - hammer is not actually used by the code anymore,
+# but it's still a dependency in the published Hex package.
 config :hammer,
   backend:
     {Hammer.Backend.ETS,
      [
+       # 2 hours
        expiry_ms: 60_000 * 60 * 2,
+       # 10 minutes
        cleanup_interval_ms: 60_000 * 10
      ]}
 

@@ -24,3 +24,4 @@ portfolio_manager-*.tar
 
 # Dialyzer PLT files
 /priv/plts/
+/arcana/
