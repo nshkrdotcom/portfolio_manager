@@ -1,5 +1,5 @@
 defmodule PortfolioManager.Agent.SessionTest do
-  use ExUnit.Case, async: true
+  use PortfolioManager.SupertesterCase, async: true
 
   alias PortfolioManager.Agent.Session
 
@@ -58,7 +58,6 @@ defmodule PortfolioManager.Agent.SessionTest do
       session = Session.new()
       original_updated_at = session.updated_at
 
-      Process.sleep(1)
       session = Session.add_message(session, %{role: :assistant, content: "Hi"})
 
       assert DateTime.compare(session.updated_at, original_updated_at) == :gt
@@ -125,7 +124,6 @@ defmodule PortfolioManager.Agent.SessionTest do
       session = Session.new()
       original = session.updated_at
 
-      Process.sleep(1)
       session = Session.add_tool_result(session, :list_files, {:ok, []})
 
       assert DateTime.compare(session.updated_at, original) == :gt

@@ -1,5 +1,5 @@
 defmodule PortfolioManager.GraphTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
 
   import Mox
 

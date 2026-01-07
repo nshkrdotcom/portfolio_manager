@@ -4,6 +4,8 @@
 #
 # Run with: mix run examples/agent_task.exs
 
+Mix.Task.run("app.start")
+
 IO.puts("=== Agent Task Example ===\n")
 
 # List available tools

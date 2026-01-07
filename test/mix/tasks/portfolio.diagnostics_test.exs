@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Portfolio.DiagnosticsTest do
-  use ExUnit.Case, async: true
+  use PortfolioManager.SupertesterCase, async: true
 
   import ExUnit.CaptureIO
 

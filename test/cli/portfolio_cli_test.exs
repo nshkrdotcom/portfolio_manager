@@ -1,5 +1,5 @@
 defmodule PortfolioManager.CliTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
 
   import ExUnit.CaptureIO
   import Mox

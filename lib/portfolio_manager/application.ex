@@ -8,7 +8,14 @@ defmodule PortfolioManager.Application do
 
   @impl true
   def start(_type, _args) do
-    Application.put_env(:portfolio_manager, :manifest, load_manifest_for_pipelines())
+    manifest =
+      case Application.get_env(:portfolio_manager, :manifest, :auto) do
+        :auto -> load_manifest_for_pipelines()
+        %{} = configured -> configured
+        other -> other
+      end
+
+    Application.put_env(:portfolio_manager, :manifest, manifest)
 
     children =
       [
@@ -101,7 +108,18 @@ defmodule PortfolioManager.Application do
         other -> to_string(other)
       end
 
-    Path.join(["config", "manifests", "#{env_name}.yml"])
+    manifest_rel = Path.join("config/manifests", "#{env_name}.yml")
+
+    configured =
+      Application.get_env(:portfolio_manager, :manifest_path) ||
+        Application.get_env(:portfolio_core, :manifest, []) |> Keyword.get(:manifest_path)
+
+    candidates =
+      [configured, manifest_rel, Application.app_dir(:portfolio_manager, manifest_rel)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&expand_manifest_path/1)
+
+    Enum.find(candidates, &File.exists?/1) || expand_manifest_path(manifest_rel)
   end
 
   defp load_manifest_for_pipelines do
@@ -169,4 +187,12 @@ defmodule PortfolioManager.Application do
 
   defp to_atom_key(key) when is_atom(key), do: key
   defp to_atom_key(key) when is_binary(key), do: String.to_atom(key)
+
+  defp expand_manifest_path(path) do
+    if Path.type(path) == :absolute do
+      path
+    else
+      Path.expand(path)
+    end
+  end
 end

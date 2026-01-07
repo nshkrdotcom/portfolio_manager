@@ -286,7 +286,7 @@ Portfolio Index provides production-ready implementations of portfolio_core port
 │  │  │   _graph_id prop    │             │ └─────────────────┘ │       │   │
 │  │  │ • Cypher queries    │             │ ┌─────────────────┐ │       │   │
 │  │  │ • Neighbor traversal│             │ │ Gemini          │ │       │   │
-│  │  │ • Full-text search  │             │ │ gemini-2.0-flash│ │       │   │
+│  │  │ • Full-text search  │             │ │ gemini-flash-lite-latest│ │       │   │
 │  │  └─────────────────────┘             │ │ 1M context      │ │       │   │
 │  │                                      │ └─────────────────┘ │       │   │
 │  │  ┌─────────────────────┐             │ ┌─────────────────┐ │       │   │
@@ -781,7 +781,7 @@ router:
     - name: gemini
       module: PortfolioIndex.Adapters.LLM.Gemini
       config:
-        model: gemini-2.0-flash-exp
+        model: gemini-flash-lite-latest
       capabilities: [generation, code, long_context]
       priority: 1
       cost_per_token: 0.0001

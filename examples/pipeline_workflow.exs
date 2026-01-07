@@ -6,24 +6,30 @@
 
 import PortfolioManager.Pipeline
 
+defmodule PipelineWorkflowTelemetry do
+  def step_complete(_event, _measurements, metadata, _config) do
+    IO.puts("  [OK] Step completed: #{metadata.step}")
+  end
+
+  def step_start(_event, _measurements, metadata, _config) do
+    IO.puts("  [..] Starting step: #{metadata.step}")
+  end
+end
+
 IO.puts("=== Pipeline Workflow Example ===\n")
 
 # Attach telemetry handler to see pipeline progress
 :telemetry.attach(
   "pipeline-example",
   [:portfolio_manager, :pipeline, :step_complete],
-  fn _event, _measurements, metadata, _config ->
-    IO.puts("  [OK] Step completed: #{metadata.step}")
-  end,
+  &PipelineWorkflowTelemetry.step_complete/4,
   nil
 )
 
 :telemetry.attach(
   "pipeline-example-start",
   [:portfolio_manager, :pipeline, :step_start],
-  fn _event, _measurements, metadata, _config ->
-    IO.puts("  [..] Starting step: #{metadata.step}")
-  end,
+  &PipelineWorkflowTelemetry.step_start/4,
   nil
 )
 

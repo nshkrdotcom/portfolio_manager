@@ -4,6 +4,8 @@
 #
 # Run with: mix run examples/streaming_query.exs
 
+Mix.Task.run("app.start")
+
 IO.puts("=== Streaming Query Example ===\n")
 
 question = "What are the main features of this application?"
@@ -14,12 +16,12 @@ IO.puts("---")
 
 # Track timing
 start_time = System.monotonic_time(:millisecond)
-first_chunk_time = nil
+Process.put(:first_chunk_time, nil)
 
 case PortfolioManager.RAG.stream_query(question, fn chunk ->
        # Record time to first chunk
-       if first_chunk_time == nil do
-         first_chunk_time = System.monotonic_time(:millisecond)
+       if Process.get(:first_chunk_time) == nil do
+         Process.put(:first_chunk_time, System.monotonic_time(:millisecond))
        end
 
        IO.write(chunk)
@@ -27,8 +29,14 @@ case PortfolioManager.RAG.stream_query(question, fn chunk ->
   :ok ->
     end_time = System.monotonic_time(:millisecond)
     total_time = end_time - start_time
+    first_chunk_time = Process.get(:first_chunk_time)
 
     IO.puts("\n---")
+
+    if first_chunk_time do
+      IO.puts("Time to first chunk: #{first_chunk_time - start_time}ms")
+    end
+
     IO.puts("\nTotal time: #{total_time}ms")
 
   {:error, reason} ->

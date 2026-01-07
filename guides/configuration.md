@@ -228,7 +228,7 @@ adapters:
   llm:
     adapter: PortfolioIndex.Adapters.LLM.Gemini
     config:
-      model: gemini-2.0-flash
+      model: gemini-flash-lite-latest
       max_tokens: 8192
 
 pipelines:

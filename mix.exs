@@ -18,11 +18,6 @@ defmodule PortfolioManager.MixProject do
         plt_add_apps: [:mix, :portfolio_core],
         flags: [:error_handling, :unknown, :unmatched_returns]
       ],
-      preferred_cli_env: [
-        "test.watch": :test,
-        coveralls: :test,
-        "coveralls.html": :test
-      ],
       test_coverage: [tool: ExCoveralls],
 
       # Hex package
@@ -47,15 +42,22 @@ defmodule PortfolioManager.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  def cli do
+    [
+      preferred_envs: [
+        "test.watch": :test,
+        coveralls: :test,
+        "coveralls.html": :test
+      ]
+    ]
+  end
+
   defp deps do
     [
       # Core packages
-      {:portfolio_core, "~> 0.3.1"},
-      {:portfolio_index, "~> 0.3.1"},
-
-      # Web framework (optional, for API)
-      {:phoenix, "~> 1.7", optional: true},
-      {:phoenix_live_view, "~> 0.20", optional: true},
+      {:portfolio_core, path: "../portfolio_core", override: true},
+      {:portfolio_index, path: "../portfolio_index", override: true},
+      {:hammer, "~> 6.1"},
 
       # Database
       {:ecto_sql, "~> 3.11"},
@@ -78,7 +80,8 @@ defmodule PortfolioManager.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mox, "~> 1.1", only: :test},
-      {:excoveralls, "~> 0.18", only: :test}
+      {:excoveralls, "~> 0.18", only: :test},
+      {:supertester, "~> 0.5.0", only: :test}
     ]
   end
 

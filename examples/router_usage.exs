@@ -4,6 +4,8 @@
 #
 # Run with: mix run examples/router_usage.exs
 
+Mix.Task.run("app.start")
+
 IO.puts("=== Router Usage Example ===\n")
 
 # Check current strategy

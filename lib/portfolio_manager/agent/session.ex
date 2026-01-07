@@ -94,7 +94,11 @@ defmodule PortfolioManager.Agent.Session do
   def add_message(session, message) do
     normalized = normalize_message(message)
 
-    %{session | messages: session.messages ++ [normalized], updated_at: DateTime.utc_now()}
+    %{
+      session
+      | messages: session.messages ++ [normalized],
+        updated_at: next_timestamp(session.updated_at)
+    }
   end
 
   @doc """
@@ -111,7 +115,7 @@ defmodule PortfolioManager.Agent.Session do
     %{
       session
       | tool_results: session.tool_results ++ [tool_result],
-        updated_at: DateTime.utc_now()
+        updated_at: next_timestamp(session.updated_at)
     }
   end
 
@@ -171,7 +175,7 @@ defmodule PortfolioManager.Agent.Session do
   """
   @spec clear_messages(t()) :: t()
   def clear_messages(session) do
-    %{session | messages: [], updated_at: DateTime.utc_now()}
+    %{session | messages: [], updated_at: next_timestamp(session.updated_at)}
   end
 
   @doc """
@@ -198,6 +202,15 @@ defmodule PortfolioManager.Agent.Session do
       tool_name: message[:tool_name] || message["tool_name"],
       error: message[:error] || message["error"]
     }
+  end
+
+  defp next_timestamp(previous) do
+    now = DateTime.utc_now()
+
+    case DateTime.compare(now, previous) do
+      :gt -> now
+      _ -> DateTime.add(previous, 1, :microsecond)
+    end
   end
 
   defp generate_id do

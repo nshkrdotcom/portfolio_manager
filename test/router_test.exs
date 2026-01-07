@@ -1,5 +1,7 @@
 defmodule PortfolioManager.RouterTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
+
+  import ExUnit.CaptureLog
 
   import Mox
 
@@ -11,7 +13,7 @@ defmodule PortfolioManager.RouterTest do
     # Stop any existing router started by the application
     case Process.whereis(Router) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid -> safe_stop(pid)
     end
 
     :ok
@@ -21,13 +23,13 @@ defmodule PortfolioManager.RouterTest do
     test "starts the router with default options" do
       assert {:ok, pid} = Router.start_link([])
       assert Process.alive?(pid)
-      GenServer.stop(pid)
+      safe_stop(pid)
     end
 
     test "starts with custom strategy" do
       assert {:ok, pid} = Router.start_link(strategy: :round_robin)
       assert Router.get_strategy() == :round_robin
-      GenServer.stop(pid)
+      safe_stop(pid)
     end
 
     test "starts with providers" do
@@ -43,7 +45,7 @@ defmodule PortfolioManager.RouterTest do
 
       assert {:ok, pid} = Router.start_link(providers: providers)
       assert length(Router.list_providers()) == 1
-      GenServer.stop(pid)
+      safe_stop(pid)
     end
   end
 
@@ -65,7 +67,7 @@ defmodule PortfolioManager.RouterTest do
         )
 
       on_exit(fn ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
+        if Process.alive?(pid), do: safe_stop(pid)
       end)
 
       :ok
@@ -86,11 +88,11 @@ defmodule PortfolioManager.RouterTest do
       # Stop the router started by describe setup
       case Process.whereis(Router) do
         nil -> :ok
-        pid -> GenServer.stop(pid)
+        pid -> safe_stop(pid)
       end
 
       {:ok, pid} = Router.start_link(strategy: :fallback, providers: [])
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:error, :no_healthy_providers} =
                Router.complete([%{role: :user, content: "test"}])
@@ -115,7 +117,7 @@ defmodule PortfolioManager.RouterTest do
         )
 
       on_exit(fn ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
+        if Process.alive?(pid), do: safe_stop(pid)
       end)
 
       :ok
@@ -168,7 +170,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, fn _msgs, _opts ->
@@ -202,7 +204,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, 2, fn _msgs, _opts ->
@@ -238,7 +240,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, fn _msgs, _opts ->
@@ -274,7 +276,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, fn _msgs, _opts ->
@@ -288,7 +290,7 @@ defmodule PortfolioManager.RouterTest do
   describe "register_provider/1" do
     test "adds a new provider" do
       {:ok, pid} = Router.start_link(providers: [])
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert :ok =
                Router.register_provider(%{
@@ -319,7 +321,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert Router.health_check(:test) == :healthy
       assert Router.health_check(:unknown) == :unknown
@@ -329,7 +331,7 @@ defmodule PortfolioManager.RouterTest do
   describe "get_strategy/0 and set_strategy/1" do
     test "can get and set strategy" do
       {:ok, pid} = Router.start_link(strategy: :fallback)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert Router.get_strategy() == :fallback
 
@@ -355,7 +357,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:ok, provider} = Router.route([%{role: :user, content: "test"}])
       assert provider.name == :test_llm
@@ -379,7 +381,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, fn _msgs, _opts ->
@@ -408,19 +410,21 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       # First call fails, second succeeds
       PortfolioManager.Mocks.LLM
       |> expect(:complete, fn _msgs, _opts -> {:error, :rate_limited} end)
       |> expect(:complete, fn _msgs, _opts -> {:ok, %{content: "success"}} end)
 
-      assert {:ok, %{content: "success"}} =
-               Router.execute_with_retry(
-                 [%{role: :user, content: "test"}],
-                 max_retries: 2,
-                 retry_delay: 1
-               )
+      capture_log(fn ->
+        assert {:ok, %{content: "success"}} =
+                 Router.execute_with_retry(
+                   [%{role: :user, content: "test"}],
+                   max_retries: 2,
+                   retry_delay: 1
+                 )
+      end)
     end
 
     test "returns error after all retries exhausted" do
@@ -439,17 +443,19 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       PortfolioManager.Mocks.LLM
       |> expect(:complete, 2, fn _msgs, _opts -> {:error, :rate_limited} end)
 
-      assert {:error, {:all_providers_failed, _}} =
-               Router.execute_with_retry(
-                 [%{role: :user, content: "test"}],
-                 max_retries: 2,
-                 retry_delay: 1
-               )
+      capture_log(fn ->
+        assert {:error, {:all_providers_failed, _}} =
+                 Router.execute_with_retry(
+                   [%{role: :user, content: "test"}],
+                   max_retries: 2,
+                   retry_delay: 1
+                 )
+      end)
     end
   end
 
@@ -471,16 +477,14 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert Router.health_check(:flaky) == :healthy
 
       Router.report_result(:flaky, :failure, %{})
-      Process.sleep(10)
       assert Router.health_check(:flaky) == :healthy
 
       Router.report_result(:flaky, :failure, %{})
-      Process.sleep(10)
       assert Router.health_check(:flaky) == :unhealthy
     end
 
@@ -501,16 +505,13 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       Router.report_result(:test, :failure, %{})
       Router.report_result(:test, :failure, %{})
-      Process.sleep(10)
       Router.report_result(:test, :success, %{})
-      Process.sleep(10)
       Router.report_result(:test, :failure, %{})
       Router.report_result(:test, :failure, %{})
-      Process.sleep(10)
 
       assert Router.health_check(:test) == :healthy
     end
@@ -540,7 +541,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:ok, provider} = Router.next_provider(:first)
       assert provider.name == :second
@@ -562,7 +563,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:error, :no_more} = Router.next_provider(:only)
     end
@@ -584,7 +585,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:ok, provider} = Router.get_provider(:mytest)
       assert provider.config.model == "test"
@@ -592,7 +593,7 @@ defmodule PortfolioManager.RouterTest do
 
     test "returns error for unknown provider" do
       {:ok, pid} = Router.start_link(providers: [], health_check_interval: 0)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert {:error, :not_found} = Router.get_provider(:unknown)
     end
@@ -614,7 +615,7 @@ defmodule PortfolioManager.RouterTest do
           health_check_interval: 0
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> if Process.alive?(pid), do: safe_stop(pid) end)
 
       assert [_] = Router.list_providers()
       assert :ok = Router.unregister_provider(:removable)

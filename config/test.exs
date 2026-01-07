@@ -3,7 +3,8 @@ import Config
 config :portfolio_manager,
   env: :test,
   start_repo: false,
-  start_router: false
+  start_router: false,
+  manifest: %{}
 
 config :portfolio_core, :manifest, manifest_path: "config/manifests/test.yml"
 

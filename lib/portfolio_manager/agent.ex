@@ -198,7 +198,7 @@ defmodule PortfolioManager.Agent do
 
   defp execute_session_loop(agent, session, _task, max_iter, _opts)
        when agent.iteration >= max_iter do
-    Logger.warning("Agent reached max iterations (#{max_iter})")
+    Logger.info("Agent reached max iterations (#{max_iter})")
     synthesize_session_answer(agent, session)
   end
 
@@ -286,7 +286,7 @@ defmodule PortfolioManager.Agent do
   # Legacy execution loop
 
   defp execute_loop(agent, _task, max_iter) when agent.iteration >= max_iter do
-    Logger.warning("Agent reached max iterations (#{max_iter})")
+    Logger.info("Agent reached max iterations (#{max_iter})")
     synthesize_answer(agent)
   end
 

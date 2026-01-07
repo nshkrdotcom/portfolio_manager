@@ -111,6 +111,8 @@ Set environment variables for API keys and graph connections as needed:
 
 ```bash
 export GEMINI_API_KEY=your-key
+export ANTHROPIC_API_KEY=your-key
+export OPENAI_API_KEY=your-key
 export NEO4J_URI=bolt://localhost:7687
 export NEO4J_USER=neo4j
 export NEO4J_PASSWORD=password

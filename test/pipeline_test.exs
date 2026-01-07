@@ -1,5 +1,7 @@
 defmodule PortfolioManager.PipelineTest do
-  use ExUnit.Case, async: true
+  use PortfolioManager.SupertesterCase, async: true
+
+  import ExUnit.CaptureLog
 
   alias PortfolioManager.Pipeline
 
@@ -132,8 +134,9 @@ defmodule PortfolioManager.PipelineTest do
           %{
             name: :slow,
             function: fn _input ->
-              Process.sleep(200)
-              {:ok, :never_returns}
+              receive do
+                :never -> {:ok, :never_returns}
+              end
             end,
             depends_on: [],
             timeout: 50,
@@ -286,16 +289,20 @@ defmodule PortfolioManager.PipelineTest do
 
   describe "parallel execution" do
     test "executes parallel steps concurrently" do
-      order_agent = Agent.start_link(fn -> [] end) |> elem(1)
+      parent = self()
 
       pipeline =
         Pipeline.new(:parallel_test)
         |> Pipeline.add_step(
           :step_a,
           fn _input ->
-            Agent.update(order_agent, &[{:a_start, System.monotonic_time()} | &1])
-            Process.sleep(50)
-            Agent.update(order_agent, &[{:a_end, System.monotonic_time()} | &1])
+            send(parent, {:step_start, :a, self()})
+
+            receive do
+              {:continue, :a} -> :ok
+            end
+
+            send(parent, {:step_end, :a})
             {:ok, :a}
           end,
           parallel: true
@@ -303,29 +310,32 @@ defmodule PortfolioManager.PipelineTest do
         |> Pipeline.add_step(
           :step_b,
           fn _input ->
-            Agent.update(order_agent, &[{:b_start, System.monotonic_time()} | &1])
-            Process.sleep(50)
-            Agent.update(order_agent, &[{:b_end, System.monotonic_time()} | &1])
+            send(parent, {:step_start, :b, self()})
+
+            receive do
+              {:continue, :b} -> :ok
+            end
+
+            send(parent, {:step_end, :b})
             {:ok, :b}
           end,
           parallel: true
         )
 
-      assert {:ok, results} = Pipeline.execute(pipeline, %{})
+      task = Task.async(fn -> Pipeline.execute(pipeline, %{}) end)
+
+      assert_receive {:step_start, :a, pid_a}, 500
+      assert_receive {:step_start, :b, pid_b}, 500
+
+      send(pid_a, {:continue, :a})
+      send(pid_b, {:continue, :b})
+
+      assert_receive {:step_end, :a}, 500
+      assert_receive {:step_end, :b}, 500
+
+      assert {:ok, results} = Task.await(task, 1000)
       assert results.step_a == :a
       assert results.step_b == :b
-
-      events = Agent.get(order_agent, & &1) |> Enum.reverse()
-
-      # Both steps should start before either ends (parallel execution)
-      start_times = Enum.filter(events, fn {type, _} -> type in [:a_start, :b_start] end)
-      end_times = Enum.filter(events, fn {type, _} -> type in [:a_end, :b_end] end)
-
-      earliest_end = Enum.min_by(end_times, fn {_, t} -> t end) |> elem(1)
-      latest_start = Enum.max_by(start_times, fn {_, t} -> t end) |> elem(1)
-
-      # All starts should happen before any end for true parallel execution
-      assert latest_start < earliest_end
     end
   end
 
@@ -351,9 +361,11 @@ defmodule PortfolioManager.PipelineTest do
           depends_on: [:failing]
         )
 
-      assert {:ok, results} = Pipeline.execute(pipeline, %{})
-      assert results.failing == {:error, :oops}
-      assert results.next == {:failed_step_result, {:error, :oops}}
+      capture_log(fn ->
+        assert {:ok, results} = Pipeline.execute(pipeline, %{})
+        assert results.failing == {:error, :oops}
+        assert results.next == {:failed_step_result, {:error, :oops}}
+      end)
     end
 
     test "retry attempts step multiple times" do
@@ -375,9 +387,11 @@ defmodule PortfolioManager.PipelineTest do
           on_error: {:retry, 3}
         )
 
-      assert {:ok, results} = Pipeline.execute(pipeline, %{})
-      assert results.flaky == :success
-      assert Agent.get(call_count, & &1) == 3
+      capture_log(fn ->
+        assert {:ok, results} = Pipeline.execute(pipeline, %{})
+        assert results.flaky == :success
+        assert Agent.get(call_count, & &1) == 3
+      end)
     end
 
     test "retry exhaustion returns error" do
@@ -391,7 +405,9 @@ defmodule PortfolioManager.PipelineTest do
           on_error: {:retry, 2}
         )
 
-      assert {:error, :permanent_failure} = Pipeline.execute(pipeline, %{})
+      capture_log(fn ->
+        assert {:error, :permanent_failure} = Pipeline.execute(pipeline, %{})
+      end)
     end
   end
 
@@ -405,9 +421,11 @@ defmodule PortfolioManager.PipelineTest do
           on_error: :continue
         )
 
-      assert {:ok, results} = Pipeline.execute(pipeline, %{})
-      assert results.good == :success
-      assert results.bad == {:error, :failed}
+      capture_log(fn ->
+        assert {:ok, results} = Pipeline.execute(pipeline, %{})
+        assert results.good == :success
+        assert results.bad == {:error, :failed}
+      end)
     end
   end
 end

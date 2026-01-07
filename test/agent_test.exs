@@ -1,5 +1,7 @@
 defmodule PortfolioManager.AgentTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
+
+  import ExUnit.CaptureLog
 
   import Mox
 
@@ -13,7 +15,7 @@ defmodule PortfolioManager.AgentTest do
     # Stop any existing router started by the application
     case Process.whereis(Router) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid -> safe_stop(pid)
     end
 
     # Start the router with a mock LLM provider
@@ -33,7 +35,8 @@ defmodule PortfolioManager.AgentTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(router_pid), do: GenServer.stop(router_pid)
+      # Avoid race if the router already stopped.
+      _ = Process.exit(router_pid, :normal)
     end)
 
     :ok
@@ -112,8 +115,10 @@ defmodule PortfolioManager.AgentTest do
 
       session = Session.new()
 
-      assert {:error, :no_progress} =
-               Agent.process_with_tools(session, "Task", [:search_code], max_iterations: 2)
+      capture_log(fn ->
+        assert {:error, :no_progress} =
+                 Agent.process_with_tools(session, "Task", [:search_code], max_iterations: 2)
+      end)
     end
 
     test "includes session context in prompts" do
@@ -177,7 +182,9 @@ defmodule PortfolioManager.AgentTest do
         {:ok, %{content: "I'm thinking about this..."}}
       end)
 
-      assert {:error, :no_progress} = Agent.run("Infinite task", max_iterations: 3)
+      capture_log(fn ->
+        assert {:error, :no_progress} = Agent.run("Infinite task", max_iterations: 3)
+      end)
     end
 
     test "handles LLM errors gracefully" do
@@ -186,7 +193,9 @@ defmodule PortfolioManager.AgentTest do
         {:error, :rate_limited}
       end)
 
-      assert {:error, :rate_limited} = Agent.run("Test task")
+      capture_log(fn ->
+        assert {:error, :rate_limited} = Agent.run("Test task")
+      end)
     end
 
     test "supports custom tool selection" do

@@ -1,5 +1,5 @@
 defmodule PortfolioManager.GenerationTest do
-  use ExUnit.Case, async: true
+  use PortfolioManager.SupertesterCase, async: true
 
   alias PortfolioManager.Generation
 

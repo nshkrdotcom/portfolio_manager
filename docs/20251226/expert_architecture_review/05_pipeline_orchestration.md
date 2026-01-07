@@ -1042,7 +1042,7 @@ defmodule PortfolioManager.CostTracker do
   @llm_costs %{
     "gpt-4o" => %{input: 0.0025, output: 0.01},  # per 1K tokens
     "claude-3-sonnet" => %{input: 0.003, output: 0.015},
-    "gemini-1.5-pro" => %{input: 0.00125, output: 0.005}
+    "gemini-flash-lite-latest" => %{input: 0.00125, output: 0.005}
   }
 
   defstruct [

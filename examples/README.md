@@ -12,6 +12,12 @@ export NEO4J_USER=neo4j
 export NEO4J_PASSWORD=password
 ```
 
+If you switch the manifest to use OpenAI, also set:
+
+```bash
+export OPENAI_API_KEY=your-key
+```
+
 Start required services (Postgres with pgvector; Neo4j for graph examples) using
 your preferred tooling.
 
@@ -59,20 +65,20 @@ mix run examples/graph_analysis.exs
 # Full workflow
 mix run examples/full_workflow.exs
 
-# Router usage (v0.3.0)
+# Router usage (v0.3.1)
 mix run examples/router_usage.exs
 
-# Streaming query (v0.3.0)
+# Streaming query (v0.3.1)
 mix run examples/streaming_query.exs
 
-# Agent task (v0.3.0)
+# Agent task (v0.3.1)
 mix run examples/agent_task.exs
 
-# Pipeline workflow (v0.3.0)
+# Pipeline workflow (v0.3.1)
 mix run examples/pipeline_workflow.exs
 ```
 
-## v0.3.0 Examples
+## v0.3.1 Examples
 
 ### Router Usage
 

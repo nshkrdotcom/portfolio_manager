@@ -18,7 +18,7 @@ adapters:
   llm:
     module: PortfolioIndex.Adapters.LLM.Gemini
     config:
-      model: gemini-2.0-flash-exp
+      model: gemini-flash-lite-latest
 
   # NEW: Provider pool for routing
   # Note: Anthropic and OpenAI adapters use SDK wrappers (claude_agent_sdk, codex_sdk)
@@ -27,7 +27,7 @@ adapters:
     - name: gemini
       module: PortfolioIndex.Adapters.LLM.Gemini
       config:
-        model: gemini-2.0-flash-exp
+        model: gemini-flash-lite-latest
       capabilities: [generation, reasoning, code]
 
     - name: claude

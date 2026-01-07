@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Portfolio.Eval.RunTest do
-  use ExUnit.Case, async: true
+  use PortfolioManager.SupertesterCase, async: true
 
   alias Mix.Tasks.Portfolio.Eval.Run
 

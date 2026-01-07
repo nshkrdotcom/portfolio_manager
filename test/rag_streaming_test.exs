@@ -1,5 +1,7 @@
 defmodule PortfolioManager.RAGStreamingTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
+
+  import ExUnit.CaptureLog
 
   import Mox
 
@@ -13,7 +15,7 @@ defmodule PortfolioManager.RAGStreamingTest do
     # Stop any existing router started by the application
     case Process.whereis(Router) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid -> safe_stop(pid)
     end
 
     # Register mock adapters
@@ -39,7 +41,7 @@ defmodule PortfolioManager.RAGStreamingTest do
 
     on_exit(fn ->
       PortfolioCore.Registry.clear()
-      if Process.alive?(router_pid), do: GenServer.stop(router_pid)
+      if Process.alive?(router_pid), do: safe_stop(router_pid)
     end)
 
     :ok
@@ -113,7 +115,9 @@ defmodule PortfolioManager.RAGStreamingTest do
         {:error, :embedding_failed}
       end)
 
-      assert {:error, _} = RAG.stream_query("test", fn _ -> :ok end)
+      capture_log(fn ->
+        assert {:error, _} = RAG.stream_query("test", fn _ -> :ok end)
+      end)
     end
   end
 

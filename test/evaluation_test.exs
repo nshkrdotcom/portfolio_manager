@@ -1,5 +1,5 @@
 defmodule PortfolioManager.EvaluationTest do
-  use ExUnit.Case, async: false
+  use PortfolioManager.SupertesterCase, async: false
 
   import Mox
 
@@ -13,7 +13,7 @@ defmodule PortfolioManager.EvaluationTest do
     # Stop any existing router
     case Process.whereis(Router) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid -> safe_stop(pid)
     end
 
     # Start router with mock LLM
@@ -33,7 +33,7 @@ defmodule PortfolioManager.EvaluationTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(router_pid), do: GenServer.stop(router_pid)
+      if Process.alive?(router_pid), do: safe_stop(router_pid)
     end)
 
     :ok

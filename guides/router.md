@@ -23,7 +23,7 @@ router:
     - name: gemini
       module: PortfolioIndex.Adapters.LLM.Gemini
       config:
-        model: gemini-2.0-flash-exp
+        model: gemini-flash-lite-latest
       capabilities:
         - generation
         - code
