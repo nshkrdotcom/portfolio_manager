@@ -1,15 +1,17 @@
 # CLI Reference
 
-Portfolio Manager provides Mix tasks for common operations.
+Portfolio Manager provides Mix tasks for RAG queries, indexing, evaluation,
+graph analysis, and maintenance operations.
 
 ## mix portfolio.ask
 
-Ask a question using RAG.
+Ask a question using RAG retrieval and LLM generation.
 
 ```bash
 mix portfolio.ask "What does the User module do?"
 mix portfolio.ask "How is authentication handled?" --strategy self_rag
 mix portfolio.ask "Explain the caching layer" --index my_project --k 15
+mix portfolio.ask "Summarize this module" --stream
 ```
 
 ### Options
@@ -19,6 +21,7 @@ mix portfolio.ask "Explain the caching layer" --index my_project --k 15
 | `--strategy` | RAG strategy (hybrid, self_rag, graph_rag, agentic) | hybrid |
 | `--index` | Vector index to query | default |
 | `--k` | Number of documents to retrieve | 10 |
+| `--stream` | Stream the response incrementally | false |
 
 ## mix portfolio.search
 
@@ -38,10 +41,8 @@ mix portfolio.search "GenServer" --index code --k 5
 
 ### Output
 
-Returns ranked results with:
-- Relevance score
-- Source file path
-- Content snippet
+Returns ranked results with relevance score, source file path, and a content
+snippet.
 
 ## mix portfolio.index
 
@@ -62,10 +63,10 @@ mix portfolio.index ~/code/app --extensions .ex,.exs,.md,.txt
 
 ### Behavior
 
-1. Scans repository for matching files
+1. Scans the repository for matching files
 2. Excludes `deps/`, `_build/`, `.git/` by default
 3. Queues files for chunking and embedding
-4. Creates vector index if it doesn't exist
+4. Creates the vector index if it does not exist
 
 ## mix portfolio.graph
 
@@ -94,6 +95,101 @@ mix portfolio.graph build /python/project --graph py_deps --language python
 | `--graph` | Graph ID | default |
 | `--language` | Dependency language (elixir, python) | elixir |
 
+## mix portfolio.diagnostics
+
+Show system diagnostics and health information.
+
+```bash
+mix portfolio.diagnostics
+mix portfolio.diagnostics --format json
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format` | Output format (table, json) | table |
+| `--dry-run` | Show what would be checked | false |
+
+### Output
+
+Displays:
+- Collection, document, and chunk counts
+- Embedding coverage statistics
+- Failed document counts
+- Configuration summary
+
+## mix portfolio.eval.generate
+
+Generate synthetic evaluation test cases from indexed content.
+
+```bash
+mix portfolio.eval.generate
+mix portfolio.eval.generate --sample-size 20
+mix portfolio.eval.generate --collection my_docs --source-id doc_abc
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--sample-size` | Number of chunks to sample | 10 |
+| `--collection` | Filter chunks by collection | all |
+| `--source-id` | Filter by source document ID | all |
+
+The generator samples chunks and uses the LLM to create realistic questions
+that those chunks should answer.
+
+## mix portfolio.eval.run
+
+Run retrieval evaluation against test cases and report IR metrics.
+
+```bash
+mix portfolio.eval.run
+mix portfolio.eval.run --mode hybrid
+mix portfolio.eval.run --generate --sample-size 10
+mix portfolio.eval.run --fail-under 0.8 --format json
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--mode` | Search mode (semantic, fulltext, hybrid) | semantic |
+| `--collection` | Filter test cases by collection | all |
+| `--generate` | Auto-generate test cases if none exist | false |
+| `--sample-size` | Sample size when generating | 10 |
+| `--format` | Output format (table, json) | table |
+| `--fail-under` | Exit code 1 if recall@5 is below this threshold | none |
+
+### Reported Metrics
+
+- **Recall@K** -- Fraction of relevant chunks found
+- **Precision@K** -- Fraction of top K results that are relevant
+- **MRR** -- Mean Reciprocal Rank
+- **Hit Rate@K** -- Whether any relevant result appears in top K
+
+## mix portfolio.reembed
+
+Re-embed documents using the current embedding model configuration.
+
+```bash
+mix portfolio.reembed
+mix portfolio.reembed --collection my_docs --verbose
+mix portfolio.reembed --batch-size 50
+mix portfolio.reembed --dry-run
+```
+
+### Options
+
+| Option | Alias | Description | Default |
+|--------|-------|-------------|---------|
+| `--collection` | `-c` | Only re-embed chunks in this collection | all |
+| `--batch-size` | `-b` | Chunks per batch | 100 |
+| `--verbose` | `-v` | Show progress updates | false |
+| `--dry-run` | | Preview without changes | false |
+| `--help` | | Show help message | |
+
 ## Common Patterns
 
 ### Index and Query Workflow
@@ -112,24 +208,38 @@ mix portfolio.ask "How are errors logged?" --index my_app
 ### Multi-Project Setup
 
 ```bash
-# Index multiple projects with different names
+# Index multiple projects
 mix portfolio.index ~/projects/api --index api
 mix portfolio.index ~/projects/web --index web
-mix portfolio.index ~/projects/core --index core
 
 # Query specific projects
 mix portfolio.ask "How does auth work?" --index api
-mix portfolio.ask "What components exist?" --index web
 ```
 
-### Build and Query Dependencies
+### Evaluation Workflow
 
 ```bash
-# Build dependency graph
-mix portfolio.graph build ~/projects/my_app --graph deps
+# Generate test cases from your index
+mix portfolio.eval.generate --sample-size 50
 
-# View statistics
-mix portfolio.graph stats --graph deps
+# Run baseline evaluation
+mix portfolio.eval.run --mode semantic
+
+# Compare with hybrid search
+mix portfolio.eval.run --mode hybrid
+
+# Gate CI on minimum quality
+mix portfolio.eval.run --fail-under 0.8
+```
+
+### Re-embedding After Model Change
+
+```bash
+# Preview what would be re-embedded
+mix portfolio.reembed --dry-run
+
+# Re-embed with progress output
+mix portfolio.reembed --verbose --batch-size 200
 ```
 
 ## Exit Codes
@@ -137,13 +247,15 @@ mix portfolio.graph stats --graph deps
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error (missing arguments, query failure, etc.) |
+| 1 | Error (missing arguments, query failure, threshold not met) |
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `GEMINI_API_KEY` | API key for Gemini embeddings/LLM |
+| `GEMINI_API_KEY` | API key for Gemini embeddings and LLM |
+| `OPENAI_API_KEY` | API key for OpenAI models |
+| `ANTHROPIC_API_KEY` | API key for Anthropic (Claude) models |
 | `NEO4J_URI` | Neo4j connection URI |
 | `NEO4J_USER` | Neo4j username |
 | `NEO4J_PASSWORD` | Neo4j password |

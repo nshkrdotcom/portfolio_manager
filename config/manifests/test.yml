@@ -27,7 +27,6 @@ router:
   health_check_interval: 0
   providers:
     - name: test_llm
-      module: PortfolioManager.Mocks.LLM
       config: {}
       capabilities:
         - generation

@@ -16,6 +16,8 @@ defmodule PortfolioManager.EvaluationTest do
       pid -> safe_stop(pid)
     end
 
+    PortfolioCore.Registry.register(:llm, PortfolioManager.Mocks.LLM, model: "test")
+
     # Start router with mock LLM
     {:ok, router_pid} =
       Router.start_link(
@@ -34,6 +36,7 @@ defmodule PortfolioManager.EvaluationTest do
 
     on_exit(fn ->
       if Process.alive?(router_pid), do: safe_stop(router_pid)
+      PortfolioCore.Registry.clear()
     end)
 
     :ok

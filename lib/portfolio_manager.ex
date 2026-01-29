@@ -3,7 +3,7 @@ defmodule PortfolioManager do
   Application layer for managing code portfolios with RAG and graph tooling.
   """
 
-  @version "0.3.0"
+  @version "0.4.0"
 
   @doc """
   Return the current library version.

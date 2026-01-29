@@ -18,6 +18,8 @@ defmodule PortfolioManager.AgentTest do
       pid -> safe_stop(pid)
     end
 
+    PortfolioCore.Registry.register(:llm, PortfolioManager.Mocks.LLM, model: "test")
+
     # Start the router with a mock LLM provider
     {:ok, router_pid} =
       Router.start_link(
@@ -37,6 +39,7 @@ defmodule PortfolioManager.AgentTest do
     on_exit(fn ->
       # Avoid race if the router already stopped.
       _ = Process.exit(router_pid, :normal)
+      PortfolioCore.Registry.clear()
     end)
 
     :ok

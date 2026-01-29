@@ -110,6 +110,27 @@ adapters:
       max_tokens: 4096
 ```
 
+LLM execution goes through `nsai_llm` Actions and the configured adapter above.
+
+#### Router Profiles (Optional)
+
+```yaml
+router:
+  strategy: specialist
+  providers:
+    - name: gemini_fast
+      config:
+        model: gemini-flash-lite-latest
+      capabilities: [generation, code]
+      priority: 1
+
+    - name: gemini_reasoning
+      config:
+        model: gemini-1.5-pro-latest
+      capabilities: [reasoning, analysis]
+      priority: 2
+```
+
 ### Chunker
 
 Document chunking configuration:

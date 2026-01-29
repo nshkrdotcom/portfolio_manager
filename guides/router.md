@@ -4,7 +4,7 @@ The Router module provides multi-provider LLM routing with intelligent strategie
 
 ## Overview
 
-`PortfolioManager.Router` is a GenServer that manages multiple LLM providers and routes requests based on configurable strategies. It supports:
+`PortfolioManager.Router` is a GenServer that manages multiple LLM routing profiles and routes requests based on configurable strategies. It supports:
 
 - **Fallback routing** - Use providers in priority order
 - **Round-robin routing** - Distribute requests across healthy providers
@@ -13,15 +13,20 @@ The Router module provides multi-provider LLM routing with intelligent strategie
 
 ## Configuration
 
-Configure the router in your manifest file:
+Configure the LLM adapter and router profiles in your manifest file:
 
 ```yaml
+adapters:
+  llm:
+    adapter: PortfolioIndex.Adapters.LLM.Gemini
+    config:
+      model: gemini-flash-lite-latest
+
 router:
   strategy: specialist
   health_check_interval: 30000
   providers:
-    - name: gemini
-      module: PortfolioIndex.Adapters.LLM.Gemini
+    - name: gemini_fast
       config:
         model: gemini-flash-lite-latest
       capabilities:
@@ -30,22 +35,17 @@ router:
         - reasoning
       priority: 1
 
-    - name: claude
-      module: PortfolioIndex.Adapters.LLM.Anthropic
-      config: {}
+    - name: gemini_reasoning
+      config:
+        model: gemini-1.5-pro-latest
       capabilities:
         - reasoning
         - analysis
       priority: 2
-
-    - name: openai
-      module: PortfolioIndex.Adapters.LLM.OpenAI
-      config: {}
-      capabilities:
-        - generation
-        - code
-      priority: 3
 ```
+
+Router execution uses `nsai_llm` Actions and the configured `adapters.llm` adapter.
+Provider modules are optional and only used for health metadata.
 
 ## Basic Usage
 
@@ -141,8 +141,7 @@ Router.list_providers()
 ```elixir
 Router.register_provider(%{
   name: :new_provider,
-  module: MyApp.LLM.Custom,
-  config: %{api_key: "..."},
+  config: %{model: "gemini-flash-lite-latest"},
   capabilities: [:generation],
   priority: 5
 })

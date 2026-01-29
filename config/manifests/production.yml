@@ -39,32 +39,21 @@ router:
   strategy: specialist
   health_check_interval: 30000
   providers:
-    - name: gemini
-      module: PortfolioIndex.Adapters.LLM.Gemini
+    - name: gemini_fast
       config:
         model: gemini-flash-lite-latest
       capabilities:
         - generation
         - code
-        - reasoning
       priority: 1
 
-    - name: claude
-      module: PortfolioIndex.Adapters.LLM.Anthropic
-      config: {}
+    - name: gemini_reasoning
+      config:
+        model: gemini-1.5-pro-latest
       capabilities:
         - reasoning
         - analysis
       priority: 2
-
-    # Uses OpenAI adapter (openai_ex); defaults to gpt-4o-mini unless overridden
-    - name: openai
-      module: PortfolioIndex.Adapters.LLM.OpenAI
-      config: {}
-      capabilities:
-        - generation
-        - code
-      priority: 3
 
 agent:
   max_iterations: 10

@@ -1,14 +1,14 @@
 defmodule PortfolioManager.MixProject do
   use Mix.Project
 
-  @version "0.3.1"
+  @version "0.4.0"
   @source_url "https://github.com/nshkrdotcom/portfolio_manager"
 
   def project do
     [
       app: :portfolio_manager,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -55,8 +55,10 @@ defmodule PortfolioManager.MixProject do
   defp deps do
     [
       # Core packages
-      {:portfolio_core, path: "../portfolio_core", override: true},
-      {:portfolio_index, path: "../portfolio_index", override: true},
+      {:portfolio_core, path: "../portfolio_core"},
+      {:portfolio_index, path: "../portfolio_index"},
+      # TODO: nsai_llm doesn't exist yet - commented out temporarily
+      # {:nsai_llm, "~> 0.1.0"},
       {:hammer, "~> 6.1"},
 
       # Database
@@ -76,12 +78,12 @@ defmodule PortfolioManager.MixProject do
       {:telemetry, "~> 1.2"},
 
       # Dev/test
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:mox, "~> 1.1", only: :test},
       {:excoveralls, "~> 0.18", only: :test},
-      {:supertester, "~> 0.5.0", only: :test}
+      {:supertester, "~> 0.5.1", only: :test}
     ]
   end
 
@@ -101,40 +103,79 @@ defmodule PortfolioManager.MixProject do
       assets: %{"assets" => "assets"},
       extras: [
         "README.md",
+        # Introduction
         "guides/getting_started.md",
+        # Core Guides
+        "guides/llm.md",
         "guides/rag.md",
-        "guides/graph.md",
-        "guides/configuration.md",
-        "guides/cli.md",
         "guides/router.md",
+        "guides/streaming.md",
+        # Advanced
         "guides/agent.md",
         "guides/pipeline.md",
-        "guides/streaming.md",
+        "guides/graph.md",
+        "guides/evaluation.md",
+        # Reference
+        "guides/cli.md",
+        "guides/configuration.md",
+        # About
         "CHANGELOG.md",
         "LICENSE"
       ],
       groups_for_extras: [
-        Guides: ~r/guides\/.*/
+        Introduction: ["README.md", "guides/getting_started.md"],
+        "Core Guides": [
+          "guides/llm.md",
+          "guides/rag.md",
+          "guides/router.md",
+          "guides/streaming.md"
+        ],
+        Advanced: [
+          "guides/agent.md",
+          "guides/pipeline.md",
+          "guides/graph.md",
+          "guides/evaluation.md"
+        ],
+        Reference: [
+          "guides/cli.md",
+          "guides/configuration.md"
+        ],
+        About: ["CHANGELOG.md", "LICENSE"]
       ],
       groups_for_modules: [
-        Core: [
-          PortfolioManager,
+        "LLM & Routing": [
+          PortfolioManager.LLM,
+          PortfolioManager.Router
+        ],
+        "RAG & Generation": [
           PortfolioManager.RAG,
-          PortfolioManager.Graph,
-          PortfolioManager.Router,
-          PortfolioManager.Agent,
-          PortfolioManager.Pipeline
+          PortfolioManager.Generation,
+          PortfolioManager.Evaluation
         ],
         Agent: [
-          PortfolioManager.Agent.Tool,
-          PortfolioManager.Agent.Session
+          PortfolioManager.Agent,
+          PortfolioManager.Agent.Session,
+          PortfolioManager.Agent.Tool
         ],
-        Domain: [
-          PortfolioManager.Domain.Registry
+        Orchestration: [
+          PortfolioManager.Pipeline,
+          PortfolioManager.Graph
         ],
         Infrastructure: [
+          PortfolioManager,
           PortfolioManager.Application,
-          PortfolioManager.Repo
+          PortfolioManager.Repo,
+          PortfolioManager.Domain.Registry
+        ],
+        "Mix Tasks": [
+          Mix.Tasks.Portfolio.Ask,
+          Mix.Tasks.Portfolio.Search,
+          Mix.Tasks.Portfolio.Index,
+          Mix.Tasks.Portfolio.Graph,
+          Mix.Tasks.Portfolio.Diagnostics,
+          Mix.Tasks.Portfolio.Eval.Generate,
+          Mix.Tasks.Portfolio.Eval.Run,
+          Mix.Tasks.Portfolio.Reembed
         ]
       ]
     ]

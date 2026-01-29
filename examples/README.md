@@ -31,7 +31,8 @@ mix ecto.migrate -r PortfolioIndex.Repo
 
 These examples rely on the adapters configured in `config/manifests/development.yml`.
 By default they use the Gemini embedder/LLM in `portfolio_index`, so set
-`GEMINI_API_KEY` or swap the manifest to another provider. Graph examples also
+`GEMINI_API_KEY` or swap the manifest to another provider. LLM calls are executed
+through `nsai_llm` Actions using the configured adapter. Graph examples also
 require a `graph_store` adapter (such as Neo4j).
 The `rag_query` example expects an index named `default`, so run `index_repo`
 first or adjust the `index_id` in the script. You can also set

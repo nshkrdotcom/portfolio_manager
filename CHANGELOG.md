@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-28
+
+### Added
+
+- `PortfolioManager.LLM` - Centralized LLM gateway via `nsai_llm` Actions and Jido.Exec
+  - `complete/2` - Execute completions through the configured PortfolioCore LLM adapter
+  - `stream/2` - Stream completions through the configured adapter
+  - Response and error normalization for consistent return types
+- SupertesterCase module with ETS table injection for Registry isolation across async tests
+  - `safe_stop/1` helper for graceful GenServer shutdown in tests
+- Arcana feature adoption plan and technical roadmap documentation
+
+### Changed
+
+- **Router provider model reworked** - Providers are now lightweight profiles (name, config, capabilities) rather than module references
+  - `module` field is now optional (`module() | nil`)
+  - Execution delegates to `PortfolioManager.LLM` instead of calling provider modules directly
+  - New helpers: `build_llm_opts/2`, `effective_module/1`, `configured_llm_module/0`, `warn_on_mismatched_providers/1`
+  - Health check handles nil-module providers
+- RAG `generate_answer/3` uses `PortfolioManager.LLM.complete/2` instead of direct adapter calls
+- Eval mix tasks (`portfolio.eval.generate`, `portfolio.eval.run`) use `PortfolioManager.LLM.complete/2` instead of `Router.complete/2`
+- Manifests switched to profile-based providers (removed per-provider `module:` keys)
+  - Development/production manifests use `gemini_fast` and `gemini_reasoning` profiles
+  - Test manifest no longer specifies mock module on provider
+- Stream responses now use `%{delta: content}` maps instead of plain strings
+- Elixir requirement bumped from `~> 1.15` to `~> 1.17`
+- Migrated all test files from ExUnit.Case to SupertesterCase with Registry register/clear lifecycle
+- Removed sleep-based timing in tests; uses message passing and Process dictionary
+- Wrapped expected error logs in `capture_log` to reduce test noise
+- Session timestamp monotonicity enforced via `next_timestamp/1` helper
+- Agent max iteration log changed from warning to info level
+- Moved `preferred_cli_env` to `cli/0` function per Mix 1.15+ convention
+- Manifest path resolution searches multiple locations including `app_dir`
+- Support pre-configured manifest map in test environment to skip file loading
+
+### Dependencies
+
+- Requires portfolio_core ~> 0.5.0 (VCS port, AgentSession port, backend capabilities, comprehensive guides)
+- Requires portfolio_index ~> 0.5.0 (OpenAI Responses API, GPT-5, AgentSession adapters, Git VCS adapter, local LLM with Ollama/vLLM)
+- `ex_doc` bumped from `~> 0.31` to `~> 0.40.0`
+- `supertester` bumped from `~> 0.5.0` to `~> 0.5.1`
+- `codex_sdk` bumped from `0.4.5` to `0.5.0`
+- Removed `override: true` from portfolio_core and portfolio_index path deps
+- Added `config :jido_action, default_max_retries: 0`
+- Added Hammer rate limiter configuration workaround for portfolio_index
+
+### Documentation
+
+- Updated all guides (router, rag, streaming, configuration, getting_started) for profile-based routing and LLM gateway
+- Architecture overview rewritten for `PortfolioManager.LLM` execution path
+- Router guide documents profile-based provider configuration
+- Configuration guide adds Router Profiles section
+- Examples README documents `nsai_llm` Actions integration
+- Updated example scripts: model references, telemetry handlers, timing tracking
+
 ## [0.3.1] - 2025-12-30
 
 ### Added

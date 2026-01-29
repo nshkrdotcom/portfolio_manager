@@ -211,8 +211,7 @@ defmodule PortfolioManager.RAG do
   end
 
   defp generate_answer(question, items, opts) do
-    {llm, llm_opts} = get_adapter(:llm)
-    llm_opts = Keyword.merge(llm_opts, Keyword.get(opts, :llm_opts, []))
+    llm_opts = Keyword.get(opts, :llm_opts, [])
 
     context = Enum.map_join(items, "\n\n---\n\n", & &1.content)
 
@@ -224,7 +223,7 @@ defmodule PortfolioManager.RAG do
       %{role: :user, content: "Context:\n#{context}\n\nQuestion: #{question}"}
     ]
 
-    case llm.complete(messages, llm_opts) do
+    case PortfolioManager.LLM.complete(messages, llm_opts) do
       {:ok, %{content: answer}} -> {:ok, answer}
       {:error, _} = err -> err
     end

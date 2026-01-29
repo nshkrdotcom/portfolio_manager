@@ -8,6 +8,9 @@ defmodule PortfolioManager.Router do
   - `:specialist` - Route by task type, capabilities, and keyword detection
   - `:cost_optimized` - Minimize cost while meeting requirements
 
+  Execution uses `nsai_llm` Actions and the configured PortfolioCore LLM adapter.
+  Provider modules are optional and only used for health metadata.
+
   ## New API
 
   The enhanced API provides more control over routing:
@@ -27,15 +30,20 @@ defmodule PortfolioManager.Router do
 
   ## Configuration
 
-  Configure in manifest:
+  Configure the LLM adapter under `adapters.llm` and define routing profiles:
+
+      adapters:
+        llm:
+          adapter: PortfolioIndex.Adapters.LLM.Gemini
+          config:
+            model: gemini-flash-lite-latest
 
       router:
         strategy: specialist
         health_check_interval: 30000
         failure_threshold: 3
         providers:
-          - name: gemini
-            module: PortfolioIndex.Adapters.LLM.Gemini
+          - name: gemini_fast
             config:
               model: gemini-flash-lite-latest
             capabilities: [generation, code, reasoning]
@@ -60,7 +68,7 @@ defmodule PortfolioManager.Router do
 
   @type provider :: %{
           name: atom(),
-          module: module(),
+          module: module() | nil,
           config: map(),
           capabilities: [atom()],
           priority: non_neg_integer(),
@@ -252,9 +260,12 @@ defmodule PortfolioManager.Router do
     failure_threshold = Keyword.get(opts, :failure_threshold, @failure_threshold)
     keyword_mappings = Keyword.get(opts, :keyword_mappings, default_keyword_mappings())
 
+    initialized_providers = initialize_providers(providers)
+    warn_on_mismatched_providers(initialized_providers)
+
     state = %{
       strategy: strategy,
-      providers: initialize_providers(providers),
+      providers: initialized_providers,
       round_robin_index: 0,
       health_check_interval: health_interval,
       failure_threshold: failure_threshold,
@@ -394,7 +405,12 @@ defmodule PortfolioManager.Router do
   defp initialize_providers(providers) do
     providers
     |> Enum.map(fn p ->
-      Map.merge(p, %{healthy: Map.get(p, :healthy, true), last_check: nil})
+      p
+      |> Map.update(:config, %{}, fn
+        nil -> %{}
+        config -> config
+      end)
+      |> Map.merge(%{healthy: Map.get(p, :healthy, true), last_check: nil})
     end)
     |> Enum.sort_by(& &1.priority)
   end
@@ -479,10 +495,9 @@ defmodule PortfolioManager.Router do
   end
 
   defp call_provider(provider, :complete, [messages, opts]) do
-    config = Map.get(provider, :config, %{})
-    config_list = Enum.into(config, [])
+    llm_opts = build_llm_opts(provider, opts)
 
-    case provider.module.complete(messages, opts ++ config_list) do
+    case PortfolioManager.LLM.complete(messages, llm_opts) do
       {:ok, _} = success ->
         report_result(provider.name, :success, %{})
         success
@@ -499,10 +514,9 @@ defmodule PortfolioManager.Router do
   end
 
   defp call_provider(provider, :stream, [messages, callback, opts]) do
-    config = Map.get(provider, :config, %{})
-    config_list = Enum.into(config, [])
+    llm_opts = build_llm_opts(provider, opts)
 
-    case provider.module.stream(messages, opts ++ config_list) do
+    case PortfolioManager.LLM.stream(messages, llm_opts) do
       {:ok, stream} ->
         Enum.each(stream, callback)
         :ok
@@ -517,20 +531,62 @@ defmodule PortfolioManager.Router do
   end
 
   defp check_provider_health(provider) do
-    healthy = check_health(provider.module, provider.config[:model])
+    healthy = check_health(effective_module(provider), provider.config[:model])
     %{provider | healthy: healthy, last_check: DateTime.utc_now()}
   rescue
     _ -> %{provider | healthy: false, last_check: DateTime.utc_now()}
   end
 
   defp check_health(module, model) do
-    if function_exported?(module, :model_info, 1) do
-      case module.model_info(model) do
-        {:ok, _} -> true
-        _ -> false
-      end
-    else
-      true
+    cond do
+      is_nil(module) ->
+        false
+
+      function_exported?(module, :model_info, 1) ->
+        case module.model_info(model) do
+          {:ok, _} -> true
+          _ -> false
+        end
+
+      true ->
+        true
     end
+  end
+
+  defp build_llm_opts(provider, opts) do
+    provider_config = provider.config
+    provider_opts = Enum.into(provider_config, [])
+    Keyword.merge(provider_opts, opts)
+  end
+
+  defp effective_module(%{module: module}) when is_atom(module), do: module
+  defp effective_module(_provider), do: configured_llm_module()
+
+  defp configured_llm_module do
+    case PortfolioCore.adapter(:llm) do
+      {module, _config} -> module
+      _ -> nil
+    end
+  end
+
+  defp warn_on_mismatched_providers(providers) do
+    configured = configured_llm_module()
+
+    if configured do
+      providers
+      |> Enum.reject(&provider_matches_module?(&1, configured))
+      |> Enum.each(&log_module_mismatch(&1, configured))
+    end
+  end
+
+  defp provider_matches_module?(%{module: nil}, _configured), do: true
+  defp provider_matches_module?(%{module: module}, configured), do: module == configured
+
+  defp log_module_mismatch(provider, configured) do
+    Logger.warning(
+      "Router provider #{provider.name} uses #{inspect(provider.module)}, " <>
+        "but configured LLM adapter is #{inspect(configured)}. " <>
+        "Requests use the configured adapter."
+    )
   end
 end

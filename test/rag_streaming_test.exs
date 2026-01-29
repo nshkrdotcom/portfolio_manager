@@ -70,7 +70,7 @@ defmodule PortfolioManager.RAGStreamingTest do
       # Mock streaming LLM response - stream/2 returns enumerable
       Mocks.LLM
       |> expect(:stream, fn _messages, _opts ->
-        {:ok, ["Hello", " ", "World"]}
+        {:ok, [%{delta: "Hello"}, %{delta: " "}, %{delta: "World"}]}
       end)
 
       received = Agent.start_link(fn -> [] end) |> elem(1)
@@ -103,7 +103,7 @@ defmodule PortfolioManager.RAGStreamingTest do
       Mocks.LLM
       |> expect(:stream, fn _messages, _opts ->
         # stream/2 returns {:ok, enumerable}
-        {:ok, ["Streamed response"]}
+        {:ok, [%{delta: "Streamed response"}]}
       end)
 
       assert :ok = RAG.stream_query("test", fn _ -> :ok end, strategy: :hybrid, top_k: 3)

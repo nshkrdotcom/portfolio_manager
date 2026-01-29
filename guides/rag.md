@@ -63,6 +63,8 @@ The `ask/2` function retrieves context and generates an answer:
 {:ok, answer} = PortfolioManager.RAG.ask("How is caching implemented?")
 ```
 
+Generation runs through `nsai_llm` Actions using the configured LLM adapter.
+
 ### CLI
 
 ```bash

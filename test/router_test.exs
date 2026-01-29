@@ -16,6 +16,12 @@ defmodule PortfolioManager.RouterTest do
       pid -> safe_stop(pid)
     end
 
+    PortfolioCore.Registry.register(:llm, PortfolioManager.Mocks.LLM, model: "test")
+
+    on_exit(fn ->
+      PortfolioCore.Registry.clear()
+    end)
+
     :ok
   end
 
@@ -130,7 +136,7 @@ defmodule PortfolioManager.RouterTest do
       |> expect(:stream, fn messages, _opts ->
         assert length(messages) == 1
         # stream/2 returns {:ok, enumerable}
-        {:ok, chunks}
+        {:ok, Enum.map(chunks, &%{delta: &1})}
       end)
 
       received = Agent.start_link(fn -> [] end) |> elem(1)

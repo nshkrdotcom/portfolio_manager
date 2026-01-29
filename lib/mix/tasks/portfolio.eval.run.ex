@@ -299,9 +299,7 @@ defmodule Mix.Tasks.Portfolio.Eval.Run do
   end
 
   defp default_llm_fn(prompt) do
-    alias PortfolioManager.Router
-
-    case Router.complete([%{role: :user, content: prompt}], []) do
+    case PortfolioManager.LLM.complete([%{role: :user, content: prompt}], []) do
       {:ok, %{content: content}} -> {:ok, content}
       {:error, _} = err -> err
     end

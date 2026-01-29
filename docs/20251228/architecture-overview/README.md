@@ -204,17 +204,18 @@ adapters:
       api_key: ${GEMINI_API_KEY}
 
   llm:
-    adapter: PortfolioIndex.Adapters.LLM.Anthropic
+    adapter: PortfolioIndex.Adapters.LLM.Gemini
     config:
-      model: claude-sonnet-4-20250514
-      api_key: ${ANTHROPIC_API_KEY}
+      model: gemini-flash-lite-latest
+      api_key: ${GEMINI_API_KEY}
 
 router:
   strategy: specialist
   health_check_interval: 30000
   providers:
-    - name: gemini
-      module: PortfolioIndex.Adapters.LLM.Gemini
+    - name: gemini_fast
+      config:
+        model: gemini-flash-lite-latest
       capabilities: [generation, code, long_context]
       priority: 1
       cost_per_token: 0.0001
@@ -679,10 +680,9 @@ User: mix portfolio.ask "How does authentication work?" --strategy hybrid
    b. VectorStore.search(index, query_vector, k) → semantic results
    c. Keyword search (if available) → keyword results
    d. RRF fusion → merged results
-5. RAG.ask calls Router.complete to generate answer
-6. Router selects healthy provider (Gemini/Claude)
-7. LLM adapter makes API call
-8. Answer returned to CLI
+5. RAG.ask calls PortfolioManager.LLM.complete (nsai_llm Action) to generate answer
+6. nsai_llm uses the configured PortfolioCore LLM adapter
+7. Answer returned to CLI
 ```
 
 ### Example 2: Repository Indexing
@@ -762,10 +762,10 @@ adapters:
       dimensions: 768
 
   llm:
-    adapter: PortfolioIndex.Adapters.LLM.Anthropic
+    adapter: PortfolioIndex.Adapters.LLM.Gemini
     config:
-      model: claude-sonnet-4-20250514
-      api_key: ${ANTHROPIC_API_KEY}
+      model: gemini-flash-lite-latest
+      api_key: ${GEMINI_API_KEY}
       max_tokens: 4096
 
   chunker:
@@ -778,18 +778,16 @@ router:
   strategy: specialist
   health_check_interval: 30000
   providers:
-    - name: gemini
-      module: PortfolioIndex.Adapters.LLM.Gemini
+    - name: gemini_fast
       config:
         model: gemini-flash-lite-latest
       capabilities: [generation, code, long_context]
       priority: 1
       cost_per_token: 0.0001
 
-    - name: claude
-      module: PortfolioIndex.Adapters.LLM.Anthropic
+    - name: gemini_reasoning
       config:
-        model: claude-sonnet-4-20250514
+        model: gemini-1.5-pro-latest
       capabilities: [reasoning, analysis, writing]
       priority: 2
       cost_per_token: 0.003
