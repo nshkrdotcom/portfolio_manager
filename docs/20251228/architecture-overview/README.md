@@ -680,8 +680,8 @@ User: mix portfolio.ask "How does authentication work?" --strategy hybrid
    b. VectorStore.search(index, query_vector, k) → semantic results
    c. Keyword search (if available) → keyword results
    d. RRF fusion → merged results
-5. RAG.ask calls PortfolioManager.LLM.complete (nsai_llm Action) to generate answer
-6. nsai_llm uses the configured PortfolioCore LLM adapter
+5. RAG.ask calls PortfolioManager.LLM.complete to generate answer
+6. PortfolioManager.LLM uses the configured PortfolioCore LLM adapter
 7. Answer returned to CLI
 ```
 

@@ -12,9 +12,8 @@ Rather than calling LLM adapters directly, all modules in Portfolio Manager
 and `LLM.stream/2`. This gateway:
 
 - Resolves the active LLM adapter from the PortfolioCore registry
-- Executes calls through `nsai_llm` Actions via `Jido.Exec`
-- Normalizes responses into a consistent `%{content, usage, model}` shape
-- Normalizes errors into readable terms
+- Delegates directly to the configured `PortfolioCore.Ports.LLM` adapter
+- Returns responses in the standard port shape (`%{content, usage, model, ...}`)
 
 ## Basic Usage
 
@@ -32,7 +31,7 @@ IO.puts(result.content)
 # => "Pattern matching is a fundamental feature of Elixir..."
 
 IO.inspect(result.usage)
-# => %{prompt_tokens: 24, completion_tokens: 150, total_tokens: 174}
+# => %{input_tokens: 24, output_tokens: 150}
 ```
 
 ### Streaming
@@ -79,12 +78,12 @@ Successful completions return a normalized map:
 %{
   content: "The generated text...",
   usage: %{
-    prompt_tokens: 24,
-    completion_tokens: 150,
-    total_tokens: 174
+    input_tokens: 24,
+    output_tokens: 150
   },
   model: "gemini-flash-lite-latest",
-  completion: %{...}  # Raw provider response
+  finish_reason: :stop,
+  response_id: nil
 }
 ```
 
@@ -97,10 +96,6 @@ PortfolioManager.RAG ──┐
 PortfolioManager.Router ──┤
 PortfolioManager.Agent ──┤──> PortfolioManager.LLM
 Mix.Tasks.Portfolio.Eval ─┘        │
-                                   ▼
-                          nsai_llm Actions
-                          (Complete / Stream)
-                                   │
                                    ▼
                         PortfolioCore.Registry
                         (:llm adapter lookup)

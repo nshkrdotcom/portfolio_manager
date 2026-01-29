@@ -44,7 +44,7 @@ router:
       priority: 2
 ```
 
-Router execution uses `nsai_llm` Actions and the configured `adapters.llm` adapter.
+Router execution delegates directly to the configured `adapters.llm` adapter.
 Provider modules are optional and only used for health metadata.
 
 ## Basic Usage

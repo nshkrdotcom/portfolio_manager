@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `PortfolioManager.LLM` - Centralized LLM gateway via `nsai_llm` Actions and Jido.Exec
+- `PortfolioManager.LLM` - Centralized LLM gateway via the configured PortfolioCore LLM adapter
   - `complete/2` - Execute completions through the configured PortfolioCore LLM adapter
   - `stream/2` - Stream completions through the configured adapter
   - Response and error normalization for consistent return types
@@ -50,7 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `supertester` bumped from `~> 0.5.0` to `~> 0.5.1`
 - `codex_sdk` bumped from `0.4.5` to `0.5.0`
 - Removed `override: true` from portfolio_core and portfolio_index path deps
-- Added `config :jido_action, default_max_retries: 0`
 - Added Hammer rate limiter configuration workaround for portfolio_index
 
 ### Documentation
@@ -59,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture overview rewritten for `PortfolioManager.LLM` execution path
 - Router guide documents profile-based provider configuration
 - Configuration guide adds Router Profiles section
-- Examples README documents `nsai_llm` Actions integration
+- Examples README documents adapter-based LLM integration
 - Updated example scripts: model references, telemetry handlers, timing tracking
 
 ## [0.3.1] - 2025-12-30

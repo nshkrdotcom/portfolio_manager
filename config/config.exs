@@ -9,9 +9,6 @@ config :portfolio_manager,
   env: :development,
   start_repo: true
 
-config :jido_action,
-  default_max_retries: 0
-
 # Configure portfolio_core's Manifest.Engine (started by portfolio_core's supervision tree)
 config :portfolio_core, :manifest, manifest_path: "config/manifests/development.yml"
 

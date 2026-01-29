@@ -110,7 +110,7 @@ adapters:
       max_tokens: 4096
 ```
 
-LLM execution goes through `nsai_llm` Actions and the configured adapter above.
+LLM execution delegates directly to the configured adapter above.
 
 #### Router Profiles (Optional)
 

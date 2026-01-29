@@ -53,8 +53,7 @@ PortfolioManager.Router.stream(messages, fn chunk ->
   IO.write(chunk)
 end)
 
-Router streaming executes through `nsai_llm` Actions and the configured
-PortfolioCore LLM adapter.
+Router streaming executes through the configured PortfolioCore LLM adapter.
 ```
 
 ## CLI Streaming

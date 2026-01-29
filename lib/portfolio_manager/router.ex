@@ -8,7 +8,7 @@ defmodule PortfolioManager.Router do
   - `:specialist` - Route by task type, capabilities, and keyword detection
   - `:cost_optimized` - Minimize cost while meeting requirements
 
-  Execution uses `nsai_llm` Actions and the configured PortfolioCore LLM adapter.
+  Execution delegates directly to the configured PortfolioCore LLM adapter.
   Provider modules are optional and only used for health metadata.
 
   ## New API

@@ -1,28 +1,19 @@
 defmodule PortfolioManager.LLM do
   @moduledoc """
-  LLM gateway built on nsai_llm Actions and the PortfolioCore adapter registry.
+  LLM gateway backed by the configured PortfolioCore adapter registry.
 
   This module centralizes completion and streaming calls so manager flows
   always go through the configured LLM adapter.
   """
-
-  alias Jido.Exec
-  alias NSAI.LLM.Actions.Complete
-  alias NSAI.LLM.Actions.Stream, as: LLMStream
 
   @doc """
   Execute a completion using the configured LLM adapter.
   """
   @spec complete([map()], keyword()) :: {:ok, map()} | {:error, term()}
   def complete(messages, opts \\ []) when is_list(messages) do
-    params = %{messages: messages, opts: opts}
-
-    case Exec.run(Complete, params, %{}) do
-      {:ok, completion} ->
-        {:ok, normalize_completion(completion)}
-
-      {:error, reason} ->
-        {:error, normalize_error(reason)}
+    with {:ok, {adapter, adapter_opts}} <- resolve_adapter(),
+         merged_opts <- Keyword.merge(adapter_opts, opts) do
+      adapter.complete(messages, merged_opts)
     end
   end
 
@@ -31,48 +22,28 @@ defmodule PortfolioManager.LLM do
   """
   @spec stream([map()], keyword()) :: {:ok, Enumerable.t()} | {:error, term()}
   def stream(messages, opts \\ []) when is_list(messages) do
-    params = %{messages: messages, opts: opts}
-
-    case Exec.run(LLMStream, params, %{}) do
-      {:ok, %{stream: stream}} ->
-        {:ok, Stream.map(stream, &extract_content/1)}
-
-      {:error, reason} ->
-        {:error, normalize_error(reason)}
+    with {:ok, {adapter, adapter_opts}} <- resolve_adapter(),
+         merged_opts <- Keyword.merge(adapter_opts, opts),
+         {:ok, stream} <- adapter.stream(messages, merged_opts) do
+      {:ok, Stream.map(stream, &extract_delta/1)}
     end
   end
 
-  defp normalize_completion(completion) do
-    %{
-      content: extract_content(completion),
-      usage: Map.get(completion, :usage) || Map.get(completion, "usage"),
-      model: Map.get(completion, :model) || Map.get(completion, "model"),
-      completion: completion
-    }
-  end
+  defp resolve_adapter do
+    case PortfolioCore.adapter(:llm) do
+      {module, config} when is_atom(module) ->
+        {:ok, {module, normalize_opts(config)}}
 
-  defp extract_content(completion) when is_map(completion) do
-    completion
-    |> Map.get(:choices, Map.get(completion, "choices", []))
-    |> List.first()
-    |> case do
-      %{message: %{content: content}} -> content
-      %{"message" => %{"content" => content}} -> content
-      _ -> ""
+      _ ->
+        {:error, :no_llm_adapter_configured}
     end
   end
 
-  defp extract_content(_), do: ""
+  defp normalize_opts(opts) when is_list(opts), do: opts
+  defp normalize_opts(opts) when is_map(opts), do: Map.to_list(opts)
 
-  @dialyzer {:nowarn_function, normalize_error: 1}
-  defp normalize_error(error) do
-    if is_map(error) and Map.has_key?(error, :__struct__) do
-      case Map.get(error, :message) do
-        message when is_binary(message) or is_atom(message) -> message
-        _ -> error
-      end
-    else
-      error
-    end
-  end
+  defp extract_delta(%{delta: delta}) when is_binary(delta), do: delta
+  defp extract_delta(%{"delta" => delta}) when is_binary(delta), do: delta
+  defp extract_delta(delta) when is_binary(delta), do: delta
+  defp extract_delta(_), do: ""
 end
