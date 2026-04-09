@@ -191,7 +191,7 @@ defmodule PortfolioManager.MixProject do
   defp package do
     [
       name: "portfolio_manager",
-      files: ~w(lib priv assets .formatter.exs mix.exs README.md LICENSE CHANGELOG.md),
+      files: ~w(lib priv assets .formatter.exs mix.exs README.md LICENSE CHANGELOG.md guides),
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url,
