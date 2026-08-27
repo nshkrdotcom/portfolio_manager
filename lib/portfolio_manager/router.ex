@@ -497,7 +497,16 @@ defmodule PortfolioManager.Router do
   defp call_provider(provider, :complete, [messages, opts]) do
     llm_opts = build_llm_opts(provider, opts)
 
-    case PortfolioManager.LLM.complete(messages, llm_opts) do
+    result =
+      case provider.module do
+        module when is_atom(module) and not is_nil(module) ->
+          module.complete(messages, llm_opts)
+
+        _ ->
+          PortfolioManager.LLM.complete(messages, llm_opts)
+      end
+
+    case result do
       {:ok, _} = success ->
         report_result(provider.name, :success, %{})
         success
@@ -516,9 +525,20 @@ defmodule PortfolioManager.Router do
   defp call_provider(provider, :stream, [messages, callback, opts]) do
     llm_opts = build_llm_opts(provider, opts)
 
-    case PortfolioManager.LLM.stream(messages, llm_opts) do
+    result =
+      case provider.module do
+        module when is_atom(module) and not is_nil(module) ->
+          module.stream(messages, llm_opts)
+
+        _ ->
+          PortfolioManager.LLM.stream(messages, llm_opts)
+      end
+
+    case result do
       {:ok, stream} ->
-        Enum.each(stream, callback)
+        stream
+        |> Stream.map(&extract_delta/1)
+        |> Enum.each(callback)
         :ok
 
       {:error, _} = error ->
@@ -559,7 +579,12 @@ defmodule PortfolioManager.Router do
     Keyword.merge(provider_opts, opts)
   end
 
-  defp effective_module(%{module: module}) when is_atom(module), do: module
+  defp extract_delta(%{delta: delta}) when is_binary(delta), do: delta
+  defp extract_delta(%{"delta" => delta}) when is_binary(delta), do: delta
+  defp extract_delta(delta) when is_binary(delta), do: delta
+  defp extract_delta(_), do: ""
+
+  defp effective_module(%{module: module}) when is_atom(module) and not is_nil(module), do: module
   defp effective_module(_provider), do: configured_llm_module()
 
   defp configured_llm_module do
@@ -572,21 +597,14 @@ defmodule PortfolioManager.Router do
   defp warn_on_mismatched_providers(providers) do
     configured = configured_llm_module()
 
-    if configured do
+    if is_nil(configured) do
       providers
-      |> Enum.reject(&provider_matches_module?(&1, configured))
-      |> Enum.each(&log_module_mismatch(&1, configured))
+      |> Enum.filter(&is_nil(&1.module))
+      |> Enum.each(fn provider ->
+        Logger.warning(
+          "Router provider #{provider.name} has no module configured and no default LLM adapter is set."
+        )
+      end)
     end
-  end
-
-  defp provider_matches_module?(%{module: nil}, _configured), do: true
-  defp provider_matches_module?(%{module: module}, configured), do: module == configured
-
-  defp log_module_mismatch(provider, configured) do
-    Logger.warning(
-      "Router provider #{provider.name} uses #{inspect(provider.module)}, " <>
-        "but configured LLM adapter is #{inspect(configured)}. " <>
-        "Requests use the configured adapter."
-    )
   end
 end
