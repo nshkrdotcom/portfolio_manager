@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Lock refresh is blocked by BoltX 0.0.6 requiring DBConnection 2.6.x while Ecto SQL 3.14 requires 2.9.x.
+
+- Update dependency pins to current published releases and refresh resolved project lockfiles; use the 2026-09-29 CLI SDK release train.
+
 ## [0.4.0] - 2026-01-28
 
 ### Added

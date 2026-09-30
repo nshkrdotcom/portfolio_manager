@@ -59,31 +59,31 @@ defmodule PortfolioManager.MixProject do
       {:portfolio_index, path: "../portfolio_index"},
       # TODO: nsai_llm doesn't exist yet - commented out temporarily
       # {:nsai_llm, "~> 0.1.0"},
-      {:hammer, "~> 6.1"},
+      {:hammer, "~> 7.5.0"},
 
       # Database
-      {:ecto_sql, "~> 3.11"},
-      {:postgrex, "~> 0.17"},
+      {:ecto_sql, "~> 3.14.0"},
+      {:postgrex, "~> 0.22.4"},
 
       # CLI utilities
-      {:optimus, "~> 0.5"},
+      {:optimus, "~> 0.6.1"},
 
       # YAML for manifests
-      {:yaml_elixir, "~> 2.9"},
+      {:yaml_elixir, "~> 2.12.2"},
 
       # JSON
-      {:jason, "~> 1.4"},
+      {:jason, "~> 1.4.5"},
 
       # Telemetry
-      {:telemetry, "~> 1.2"},
+      {:telemetry, "~> 1.4.2"},
 
       # Dev/test
-      {:ex_doc, "~> 0.40.0", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:mox, "~> 1.1", only: :test},
-      {:excoveralls, "~> 0.18", only: :test},
-      {:supertester, "~> 0.5.1", only: :test}
+      {:ex_doc, "~> 0.40.4", only: :dev, runtime: false},
+      {:credo, "~> 1.7.19", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4.8", only: [:dev, :test], runtime: false},
+      {:mox, "~> 1.3.2", only: :test},
+      {:excoveralls, "~> 0.18.5", only: :test},
+      {:supertester, "~> 0.6.0", only: :test}
     ]
   end
 
